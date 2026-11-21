@@ -1,5 +1,32 @@
 on: [push, pull_request, workflow_dispatch]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     uses: zmkfirmware/zmk/.github/workflows/build-user-config.yml@v0.3
+
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: firmware-dist
+      - name: Publish UF2 files to firmware branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan firmware-publish
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          rm -rf .github config zephyr firmware-dist
+          rm -f build.yaml .gitignore
+          find firmware-dist -name '*.uf2' -exec cp {} . \;
+          rm -rf firmware-dist
+          git add -A
+          git commit -m "firmware: build artifacts" || echo "no changes"
+          git push -f origin firmware-publish:firmware
