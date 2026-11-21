@@ -1,0 +1,15 @@
+/*
+ * Copyright (c) 2020 Pete Johanson
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#include "pskeeb5_v2_common.dtsi"
+#include "pskeeb5_v2_layouts.dtsi"
+
+/ {
+    chosen {
+        zmk,kscan = &kscan0;
+        zmk,physical-layout = &pskeeb5_physical_layout;
+    };
+};
