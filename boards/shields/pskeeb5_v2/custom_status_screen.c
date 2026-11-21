@@ -4,8 +4,15 @@
  *
  * Custom status screen for PSKeeb5 LEFT half OLED (SSD1306 128x32).
  *
+ * Layout (physical, top -> bottom), 8px font so all three rows fit in 32px:
+ *   row 1 : Bluetooth / host link  +  battery
+ *   row 2 : active layer index
+ *   row 3 : split (left <-> right) link
+ *
  * The panel is mounted 180 degrees reversed, so every pixel must be mapped
  * (x, y) -> (PANEL_W-1-x, PANEL_H-1-y) before writing the SSD1306 page buffer.
+ * That mirrors BOTH axes, so logical LVGL alignment is the exact opposite of
+ * what appears physically (see show_status_screen()).
  *
  * ZMK's Zephyr LVGL mono bridge (lvgl_display_mono.c) flushes the I1 buffer
  * straight to the SSD1306 without honoring LVGL's display rotation, and the
@@ -14,16 +21,10 @@
  * pixels ourselves into the SSD1306's page (vertical-tiled) framebuffer.
  */
 
-#include <zmk/display/widgets/output_status.h>
-#include <zmk/display/widgets/peripheral_status.h>
-#include <zmk/display/widgets/battery_status.h>
-#include <zmk/display/widgets/layer_status.h>
-#include <zmk/display/widgets/wpm_status.h>
-#include <zmk/display/widgets/cpi_status.h>
-#include <zmk/display/widgets/sync_indicators_status.h>
-#include <zmk/display/widgets/sync_layer_status.h>
 #include <zmk/display/widgets/sync_output_status.h>
 #include <zmk/display/widgets/sync_battery_status.h>
+#include <zmk/display/widgets/sync_layer_status.h>
+#include <zmk/display/widgets/peripheral_status.h>
 #include <zmk/display/status_screen.h>
 
 #include <lvgl.h>
@@ -46,8 +47,7 @@ static const struct device *const oled_dev = DEVICE_DT_GET(OLED_NODE);
 #define PANEL_H 32
 #define FRAME_BYTES ((PANEL_W / 8) * PANEL_H) /* 512 */
 
-/* Rotation mode (panel physical size equals logical size, so width/height
- * stay 128x32; we only mirror axes):
+/* Rotation mode:
  *   1 = 180 deg  (col = PANEL_W-1-x, row = PANEL_H-1-y)  <-- PSKeeb5 mount
  *   0 = 0 deg    (col = x,           row = y)
  * pskeeb5 has inversion-on => current pixel format MONO10 => bit1 = lit.
@@ -64,86 +64,71 @@ static uint8_t logic_frame[FRAME_BYTES];
 /* SSD1306 page/vertical-tiled framebuffer: byte = [(row/8)*128 + col], bit = row%8 */
 static uint8_t phys_frame[FRAME_BYTES];
 
-/* ---------- widgets ---------- */
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_BATTERY_STATUS)
-static struct zmk_widget_battery_status battery_status_widget;
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_OUTPUT_STATUS)
-static struct zmk_widget_output_status output_status_widget;
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_PERIPHERAL_STATUS)
-static struct zmk_widget_peripheral_status peripheral_status_widget;
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_LAYER_STATUS)
-static struct zmk_widget_layer_status layer_status_widget;
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_WPM_STATUS)
-static struct zmk_widget_wpm_status wpm_status_widget;
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_CPI_STATUS)
-static struct zmk_widget_cpi_status cpi_status_widget;
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_SYNC_INDICATORS_STATUS)
-static struct zmk_widget_sync_indicators_status sync_indicators_widget;
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_SYNC_LAYER_STATUS)
-static struct zmk_widget_sync_layer_status sync_layer_widget;
-#endif
+/* ---------- widgets ----------
+ * Logical -> physical mapping under the 180 deg rotation:
+ *   logical BOTTOM row  ->  physical TOP row    (Bluetooth + battery)
+ *   logical CENTER      ->  physical CENTER     (active layer)
+ *   logical TOP row     ->  physical BOTTOM row (split link)
+ *   logical RIGHT       ->  physical LEFT
+ *   logical LEFT        ->  physical RIGHT
+ */
 #if IS_ENABLED(CONFIG_ZMK_WIDGET_SYNC_OUTPUT_STATUS)
 static struct zmk_widget_sync_output_status sync_output_widget;
 #endif
 #if IS_ENABLED(CONFIG_ZMK_WIDGET_SYNC_BATTERY_STATUS)
 static struct zmk_widget_sync_battery_status sync_battery_widget;
 #endif
+#if IS_ENABLED(CONFIG_ZMK_WIDGET_SYNC_LAYER_STATUS)
+static struct zmk_widget_sync_layer_status sync_layer_widget;
+#endif
+#if IS_ENABLED(CONFIG_ZMK_WIDGET_PERIPHERAL_STATUS)
+static struct zmk_widget_peripheral_status peripheral_status_widget;
+#endif
 
 static lv_obj_t *screen;
 
+/* Montserrat 8 keeps all three rows inside 32px. ZMK's LVGL 9.3 Montserrat
+ * fonts bundle the LV_SYMBOL_* glyphs, so icons still render at 8px. */
+static void use_small_font(lv_obj_t *obj)
+{
+    lv_obj_set_style_text_font(obj, &lv_font_montserrat_8, LV_PART_MAIN);
+}
+
 static void show_status_screen(void) {
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_BATTERY_STATUS)
-    zmk_widget_battery_status_init(&battery_status_widget, screen);
-    lv_obj_align(zmk_widget_battery_status_obj(&battery_status_widget), LV_ALIGN_TOP_RIGHT, 0, 0);
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_OUTPUT_STATUS)
-    zmk_widget_output_status_init(&output_status_widget, screen);
-    lv_obj_align(zmk_widget_output_status_obj(&output_status_widget), LV_ALIGN_TOP_LEFT, 0, 0);
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_PERIPHERAL_STATUS)
-    zmk_widget_peripheral_status_init(&peripheral_status_widget, screen);
-    lv_obj_align(zmk_widget_peripheral_status_obj(&peripheral_status_widget), LV_ALIGN_TOP_LEFT, 0,
-                 0);
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_LAYER_STATUS)
-    zmk_widget_layer_status_init(&layer_status_widget, screen);
-    lv_obj_set_style_text_font(zmk_widget_layer_status_obj(&layer_status_widget),
-                               lv_theme_get_font_small(screen), LV_PART_MAIN);
-    lv_obj_align(zmk_widget_layer_status_obj(&layer_status_widget), LV_ALIGN_BOTTOM_LEFT, 0, 0);
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_WPM_STATUS)
-    zmk_widget_wpm_status_init(&wpm_status_widget, screen);
-    lv_obj_align(zmk_widget_wpm_status_obj(&wpm_status_widget), LV_ALIGN_BOTTOM_RIGHT, 0, 0);
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_CPI_STATUS)
-    zmk_widget_cpi_status_init(&cpi_status_widget, screen);
-    lv_obj_align(zmk_widget_cpi_status_obj(&cpi_status_widget), LV_ALIGN_TOP_MID, 0, 0);
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_SYNC_INDICATORS_STATUS)
-    zmk_widget_sync_indicators_status_init(&sync_indicators_widget, screen);
-    lv_obj_align(zmk_widget_sync_indicators_status_obj(&sync_indicators_widget), LV_ALIGN_TOP_MID,
-                 15, 0);
-#endif
+    /* Logical row start-y (0..31). Under the 180 deg flip these map to:
+     *   logical y=21 -> physical TOP   : Bluetooth (left) + battery (right)
+     *   logical y=11 -> physical MID   : active layer
+     *   logical y=0  -> physical BOTTOM: split link
+     * Each row is ~10px tall (Montserrat 8), so they tile 0-10 / 11-21 / 22-32. */
 #if IS_ENABLED(CONFIG_ZMK_WIDGET_SYNC_OUTPUT_STATUS)
     zmk_widget_sync_output_status_init(&sync_output_widget, screen);
-    lv_obj_align(zmk_widget_sync_output_status_obj(&sync_output_widget), LV_ALIGN_BOTTOM_LEFT, 0,
-                 0);
-#endif
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_SYNC_LAYER_STATUS)
-    zmk_widget_sync_layer_status_init(&sync_layer_widget, screen);
-    lv_obj_align(zmk_widget_sync_layer_status_obj(&sync_layer_widget), LV_ALIGN_BOTTOM_MID, 15, 0);
+    lv_obj_t *bt = zmk_widget_sync_output_status_obj(&sync_output_widget);
+    use_small_font(bt);
+    /* logical bottom-right -> physical top-left */
+    lv_obj_align(bt, LV_ALIGN_TOP_RIGHT, 0, 21);
 #endif
 #if IS_ENABLED(CONFIG_ZMK_WIDGET_SYNC_BATTERY_STATUS)
     zmk_widget_sync_battery_status_init(&sync_battery_widget, screen);
-    lv_obj_align(zmk_widget_sync_battery_status_obj(&sync_battery_widget), LV_ALIGN_BOTTOM_RIGHT, 0,
-                 0);
+    lv_obj_t *bat = zmk_widget_sync_battery_status_obj(&sync_battery_widget);
+    use_small_font(bat);
+    /* logical bottom-left -> physical top-right */
+    lv_obj_align(bat, LV_ALIGN_TOP_LEFT, 0, 21);
+#endif
+
+#if IS_ENABLED(CONFIG_ZMK_WIDGET_SYNC_LAYER_STATUS)
+    zmk_widget_sync_layer_status_init(&sync_layer_widget, screen);
+    lv_obj_t *layer = zmk_widget_sync_layer_status_obj(&sync_layer_widget);
+    use_small_font(layer);
+    /* logical middle -> physical middle */
+    lv_obj_align(layer, LV_ALIGN_TOP_MID, 0, 11);
+#endif
+
+#if IS_ENABLED(CONFIG_ZMK_WIDGET_PERIPHERAL_STATUS)
+    zmk_widget_peripheral_status_init(&peripheral_status_widget, screen);
+    lv_obj_t *link = zmk_widget_peripheral_status_obj(&peripheral_status_widget);
+    use_small_font(link);
+    /* logical top-mid -> physical bottom-mid */
+    lv_obj_align(link, LV_ALIGN_TOP_MID, 0, 0);
 #endif
 }
 
@@ -246,6 +231,9 @@ lv_obj_t *zmk_display_status_screen(void)
     install_rotated_flush();
 
     screen = lv_obj_create(NULL);
+    /* Remove default padding so the 3 rows tile the full 32px height. */
+    lv_obj_set_style_pad_all(screen, 0, 0);
+    lv_obj_set_style_border_width(screen, 0, 0);
     show_status_screen();
     return screen;
 }
