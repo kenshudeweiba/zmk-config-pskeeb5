@@ -2,14 +2,16 @@
  * Copyright (c) 2020 The ZMK Contributors
  * SPDX-License-Identifier: MIT
  *
- * Custom status screen for PSKeeb5 with a physically portrait-mounted
- * SSD1306 (128x32) on the LEFT half.
+ * Custom status screen for PSKeeb5 LEFT half OLED (SSD1306 128x32).
+ *
+ * The panel is mounted 180 degrees reversed, so every pixel must be mapped
+ * (x, y) -> (PANEL_W-1-x, PANEL_H-1-y) before writing the SSD1306 page buffer.
  *
  * ZMK's Zephyr LVGL mono bridge (lvgl_display_mono.c) flushes the I1 buffer
  * straight to the SSD1306 without honoring LVGL's display rotation, and the
  * SSD1306 driver has no display_set_orientation(). So lv_display_set_rotation()
- * alone does nothing. We replace the flush callback at runtime and transpose
- * the pixels ourselves into the SSD1306's vertical-tiled (page) framebuffer.
+ * alone does nothing. We replace the flush callback at runtime and rotate the
+ * pixels ourselves into the SSD1306's page (vertical-tiled) framebuffer.
  */
 
 #include <zmk/display/widgets/output_status.h>
@@ -38,18 +40,20 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #define OLED_NODE DT_CHOSEN(zephyr_display)
 static const struct device *const oled_dev = DEVICE_DT_GET(OLED_NODE);
 
-/* Logical (LVGL) panel is 128x32; physical panel is 32 wide x 128 tall. */
+/* Logical (LVGL) panel and physical SSD1306 are both 128x32; the panel is
+ * simply mounted upside down, so a 180-degree rotation keeps W/H unchanged. */
 #define PANEL_W 128
 #define PANEL_H 32
 #define FRAME_BYTES ((PANEL_W / 8) * PANEL_H) /* 512 */
 
-/* Rotation direction:
- *   1 = 90 deg clockwise  (col = x,        row = PANEL_H - 1 - y)
- *   0 = 90 deg counter-cw (col = PANEL_W-1-x, row = y)
+/* Rotation mode (panel physical size equals logical size, so width/height
+ * stay 128x32; we only mirror axes):
+ *   1 = 180 deg  (col = PANEL_W-1-x, row = PANEL_H-1-y)  <-- PSKeeb5 mount
+ *   0 = 0 deg    (col = x,           row = y)
  * pskeeb5 has inversion-on => current pixel format MONO10 => bit1 = lit.
  */
-#ifndef PSKEEB5_ROTATE_CW
-#define PSKEEB5_ROTATE_CW 1
+#ifndef PSKEEB5_ROTATION_180
+#define PSKEEB5_ROTATION_180 1
 #endif
 #ifndef PSKEEB5_MONO10
 #define PSKEEB5_MONO10 1
@@ -143,7 +147,7 @@ static void show_status_screen(void) {
 #endif
 }
 
-/* ---------- custom flush: I1 -> transpose -> SSD1306 page buffer ---------- */
+/* ---------- custom flush: I1 -> rotate 180 -> SSD1306 page buffer ---------- */
 static void rotated_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
     ARG_UNUSED(area);
@@ -188,7 +192,7 @@ static void rotated_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t 
         return;
     }
 
-    /* Transpose logical (x,y) into the SSD1306 vertical-tiled framebuffer. */
+    /* Rotate logical (x,y) by 180 deg into the SSD1306 vertical-tiled buffer. */
     memset(phys_frame, PSKEEB5_MONO10 ? 0x00 : 0xFF, sizeof(phys_frame));
     for (int32_t y = 0; y < PANEL_H; y++) {
         for (int32_t x = 0; x < PANEL_W; x++) {
@@ -197,11 +201,11 @@ static void rotated_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t 
                 continue;
             }
             int32_t col, row;
-#if PSKEEB5_ROTATE_CW
-            col = x;
+#if PSKEEB5_ROTATION_180
+            col = PANEL_W - 1 - x;
             row = PANEL_H - 1 - y;
 #else
-            col = PANEL_W - 1 - x;
+            col = x;
             row = y;
 #endif
             phys_frame[(row >> 3) * PANEL_W + col] |= BIT(row & 7);
@@ -234,7 +238,7 @@ static void install_rotated_flush(void)
     lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_0);
     lv_display_set_flush_cb(disp, rotated_flush_cb);
     installed = true;
-    LOG_INF("Portrait OLED: installed 90-degree transpose flush callback");
+    LOG_INF("PSKeeb5 OLED: installed 180-degree rotation flush callback");
 }
 
 lv_obj_t *zmk_display_status_screen(void)
