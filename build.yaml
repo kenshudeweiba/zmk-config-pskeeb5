@@ -15,11 +15,14 @@
 include:
   - board: nice_nano//zmk
     shield: pskeeb5_left
+    artifact-name: pskeeb5_left
   - board: nice_nano//zmk
     shield: pskeeb5_right
     snippet: studio-rpc-usb-uart
+    artifact-name: pskeeb5_right
   - board: nice_nano//zmk
     shield: settings_reset
+    artifact-name: settings_reset
 # include:
 #   - board: nice_nano//zmk
 #     shield: doink_left
