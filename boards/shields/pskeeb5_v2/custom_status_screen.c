@@ -16,10 +16,10 @@
  * bypass LVGL's label rendering entirely and blit our own bitmaps directly
  * into a 32x128 art canvas, which the flush callback transposes to the panel.
  *
- * Screen layout (logical 32 wide x 128 tall):
- *   y=3   : output / connection icon (BT, USB, X) + charging / profile mark
- *   y=24  : LEFT half battery, number only (e.g. L85)
- *   y=40  : RIGHT half battery, number only (e.g. R90)
+ * Screen layout (logical 32 wide x 128 tall), black background / white glyphs:
+ *   y=3   : output / connection icon (BT, USB, X) + BLE profile mark
+ *   y=24  : LEFT half battery, number + charging bolt (e.g. L85)
+ *   y=40  : RIGHT half battery, number + charging bolt (e.g. R90)
  *   y=62  : active layer, large thin-line number
  *   y=110 : split link status (link + OK / X)
  */
@@ -155,11 +155,9 @@ static const char *const icon_x[] = {
     "#.......#", ".#.....#.", "..#...#..", "...#.#...", "....#....",
     "...#.#...", "..#...#..", ".#.....#.", "#.......#",
 };
-/* Lightning bolt = charging. */
-static const char *const icon_charge[] = {
-    ".....#...", "....##...", "....##...", "...##....", "...#####.",
-    "..#...#..", "..#####..", ".....#...", "....##...", "....#....",
-    "...##....", "...#.....",
+/* Compact 5x7 lightning bolt = charging, drawn next to the battery number. */
+static const char *const icon_bolt[] = {
+    "....#", "...#.", "..#..", ".###.", "..#..", ".#...", "#....",
 };
 /* Split link: two squares joined by a bar. */
 static const char *const icon_link[] = {
@@ -252,19 +250,23 @@ static void redraw_all(void)
     } else {
         art_blit(1, 6, icon_x, 9, 9);
     }
-    /* Charging mark, or BLE profile number, to the right of the icon. */
-    bool charging = left_batt_cur_state.charging || right_batt_cur_state.charging;
-    if (charging) {
-        art_blit(12, 3, icon_charge, 9, 12);
-    } else if (ble) {
+    /* BLE profile number to the right of the top icon (charging is now shown
+     * on the battery rows instead). */
+    if (ble) {
         art_number_small(13, 6, (uint16_t)output_cur_state.selected_endpoint.ble.profile_index + 1);
     }
 
-    /* --- left / right battery, plain numbers --- */
+    /* --- left / right battery: plain numbers + per-half charging bolt --- */
     art_blit(1, 24, glyph_L, 5, 7);
     art_number_small(8, 24, left_batt_cur_state.level);
+    if (left_batt_cur_state.charging) {
+        art_blit(26, 24, icon_bolt, 5, 7);
+    }
     art_blit(1, 40, glyph_R, 5, 7);
     art_number_small(8, 40, right_batt_cur_state.level);
+    if (right_batt_cur_state.charging) {
+        art_blit(26, 40, icon_bolt, 5, 7);
+    }
 
     /* --- middle: large thin layer number --- */
     uint8_t layer = layer_cur_state.index;
@@ -389,7 +391,10 @@ static void portrait_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t
     ARG_UNUSED(px_map);
     ARG_UNUSED(lv_display_flush_is_last(disp));
 
-    memset(phys_frame, PSKEEB5_MONO10 ? 0x00 : 0xFF, sizeof(phys_frame));
+    /* Black background, white glyphs. With inversion-on the panel reports
+     * PIXEL_FORMAT_MONO10, where bit=1 is black (off) and bit=0 is white (on).
+     * So fill the frame with 1s and CLEAR the bit for each lit art pixel. */
+    memset(phys_frame, PSKEEB5_MONO10 ? 0xFF : 0x00, sizeof(phys_frame));
     for (int32_t ly = 0; ly < LOGIC_H; ly++) {
         for (int32_t lx = 0; lx < LOGIC_W; lx++) {
             uint32_t idx = (uint32_t)ly * LOGIC_W + (uint32_t)lx;
@@ -405,7 +410,11 @@ static void portrait_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t
 #if PSKEEB5_FLIP_Y
             yp = PHYS_H - 1 - yp;
 #endif
-            phys_frame[(yp >> 3) * PHYS_W + xp] |= BIT(yp & 7);
+            if (PSKEEB5_MONO10) {
+                phys_frame[(yp >> 3) * PHYS_W + xp] &= ~BIT(yp & 7);
+            } else {
+                phys_frame[(yp >> 3) * PHYS_W + xp] |= BIT(yp & 7);
+            }
         }
     }
 
