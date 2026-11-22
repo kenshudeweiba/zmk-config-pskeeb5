@@ -16,11 +16,12 @@
  * bypass LVGL's label rendering entirely and blit our own bitmaps directly
  * into a 32x128 art canvas, which the flush callback transposes to the panel.
  *
- * Screen layout (logical 32 wide x 128 tall), black background / white glyphs:
+ * Screen layout (logical 32 wide x 128 tall), black background / white glyphs.
+ * EVERY row is horizontally centered as one group (icon + number together):
  *   y=3   : output / connection icon (BT, USB) rotated 90 deg landscape + profile
  *   y=24  : LEFT half battery, number (L85) or charging glyph while charging
  *   y=40  : RIGHT half battery, number (R90) or charging glyph while charging
- *   y=62  : active layer, large BOLD number, horizontally centered
+ *   y=62  : active layer, large BOLD number, centered by actual ink bounds
  *   y=90  : mouse speed (S + number, synced from central)
  *   y=112 : split link status (link + OK / X)
  */
@@ -250,6 +251,46 @@ static void art_number_small(int x, int y, uint16_t value)
     }
 }
 
+/* Thicken a glyph into a 2x2 block PER lit pixel and center it by its real ink
+ * bounds (glyph bitmaps have leading/trailing blank columns). Using the ink
+ * bounds instead of the fixed 9px cell keeps every digit visually centered. */
+static void art_blit_bold_centered(int y, const char *const *rows, int w, int h)
+{
+    int lo = w, hi = -1;
+    for (int r = 0; r < h; r++) {
+        for (int c = 0; c < w; c++) {
+            if (rows[r][c] == '#') {
+                if (c < lo) lo = c;
+                if (c > hi) hi = c;
+            }
+        }
+    }
+    if (hi < 0) {
+        return;
+    }
+    /* Bold expands ink column c to [c, c+1]; center that span. */
+    int x = ((LOGIC_W - 1) - lo - (hi + 1)) / 2;
+    art_blit_bold(x, y, rows, w, h);
+}
+
+/* Pixel width drawn by art_number_small(): each 5x7 digit takes 6px, minus
+ * the trailing gap of the last one. Used to center mixed icon+number rows. */
+static int art_number_small_width(uint16_t value)
+{
+    int digits = 1;
+    while (value >= 10) {
+        value /= 10;
+        digits++;
+    }
+    return digits * 6 - 1;
+}
+
+/* Center a horizontal group of total width w inside the LOGIC_W strip. */
+static int art_center_x(int group_width)
+{
+    return (LOGIC_W - group_width) / 2;
+}
+
 /* ================= STATE ================= */
 struct output_state {
     struct zmk_endpoint_instance selected_endpoint;
@@ -300,50 +341,69 @@ static void redraw_all(void)
     bool connected = usb || ble;
 
     /* Top connection icon is rotated 90 deg so it lies landscape across the
-     * portrait strip. Rotated footprint: BT 13x9, USB 12x9, X 9x9. */
+     * portrait strip. Rotated footprint: BT 13x9, USB 12x9, X 9x9.
+     * The icon (+ optional BLE profile number) is one centered group. */
     if (connected) {
+        int icon_w = usb ? 12 : 13;
+        uint16_t profile = (uint16_t)output_cur_state.selected_endpoint.ble.profile_index + 1;
+        int prof_w = ble ? (1 + art_number_small_width(profile)) : 0;
+        int group_w = icon_w + prof_w;
+        int gx = art_center_x(group_w);
         if (usb) {
-            art_blit_rot90(1, 3, icon_usb, 9, 12);
+            art_blit_rot90(gx, 3, icon_usb, 9, 12);
         } else {
-            art_blit_rot90(1, 3, icon_bt, 9, 13);
+            art_blit_rot90(gx, 3, icon_bt, 9, 13);
+        }
+        if (ble) {
+            art_number_small(gx + icon_w + 1, 4, profile);
         }
     } else {
-        art_blit(1, 3, icon_x, 9, 9);
-    }
-    /* BLE profile number to the right of the (now landscape) top icon. */
-    if (ble) {
-        art_number_small(16, 4, (uint16_t)output_cur_state.selected_endpoint.ble.profile_index + 1);
+        art_blit(art_center_x(9), 3, icon_x, 9, 9);
     }
 
     /* --- left / right battery: number, or charging glyph instead of the
-     * false VDDH "100%" while on USB power --- */
-    art_blit(1, 24, glyph_L, 5, 7);
-    if (left_batt_cur_state.charging) {
-        art_blit(8, 23, icon_charging, 13, 7);
-    } else {
-        art_number_small(8, 24, left_batt_cur_state.level);
+     * false VDDH "100%" while on USB power. Each row = "L/R value", centered. --- */
+    {
+        int val_w = left_batt_cur_state.charging ? 13
+                                                 : art_number_small_width(left_batt_cur_state.level);
+        int gx = art_center_x(5 + 1 + val_w);
+        art_blit(gx, 24, glyph_L, 5, 7);
+        if (left_batt_cur_state.charging) {
+            art_blit(gx + 6, 23, icon_charging, 13, 7);
+        } else {
+            art_number_small(gx + 6, 24, left_batt_cur_state.level);
+        }
     }
-    art_blit(1, 40, glyph_R, 5, 7);
-    if (right_batt_cur_state.charging) {
-        art_blit(8, 39, icon_charging, 13, 7);
-    } else {
-        art_number_small(8, 40, right_batt_cur_state.level);
+    {
+        int val_w = right_batt_cur_state.charging
+                        ? 13
+                        : art_number_small_width(right_batt_cur_state.level);
+        int gx = art_center_x(5 + 1 + val_w);
+        art_blit(gx, 40, glyph_R, 5, 7);
+        if (right_batt_cur_state.charging) {
+            art_blit(gx + 6, 39, icon_charging, 13, 7);
+        } else {
+            art_number_small(gx + 6, 40, right_batt_cur_state.level);
+        }
     }
 
-    /* --- middle: large BOLD layer number, horizontally centered.
-     * digit9 is 9x13; the bold blit expands it to 10x14. --- */
+    /* --- middle: large BOLD layer number, centered by its actual ink bounds. --- */
     uint8_t layer = layer_cur_state.index;
-    art_blit_bold((LOGIC_W - 10) / 2, 62, digit9[layer < 10 ? layer : 0], 9, 13);
+    art_blit_bold_centered(62, digit9[layer < 10 ? layer : 0], 9, 13);
 
-    /* --- below layer: mouse speed (S + number) --- */
+    /* --- below layer: mouse speed "S value", centered as one group. --- */
     if (mouse_speed_known) {
-        art_blit(2, 90, glyph_S, 5, 7);
-        art_number_small(9, 90, mouse_speed);
+        int gx = art_center_x(5 + 1 + art_number_small_width(mouse_speed));
+        art_blit(gx, 90, glyph_S, 5, 7);
+        art_number_small(gx + 6, 90, mouse_speed);
     }
 
-    /* --- bottom: split link status --- */
-    art_blit(1, 112, icon_link, 11, 9);
-    art_blit(13, 112, link_connected ? icon_ok : icon_x, 9, 9);
+    /* --- bottom: split link + status icon, centered as one group. --- */
+    {
+        int gx = art_center_x(11 + 2 + 9);
+        art_blit(gx, 112, icon_link, 11, 9);
+        art_blit(gx + 13, 112, link_connected ? icon_ok : icon_x, 9, 9);
+    }
 
     if (screen != NULL) {
         lv_obj_invalidate(screen);
