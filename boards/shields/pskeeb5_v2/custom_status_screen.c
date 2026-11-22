@@ -137,6 +137,7 @@ struct output_state {
     bool active_profile_bonded;
     bool have_state;
 };
+typedef struct output_state output_state_t;
 
 static void set_output_icon(struct output_state st)
 {
@@ -185,7 +186,7 @@ static void output_update_cb(struct output_state st)
     set_output_icon(st);
 }
 
-ZMK_DISPLAY_WIDGET_LISTENER(output_icon, struct output_state, output_update_cb, output_get_state)
+ZMK_DISPLAY_WIDGET_LISTENER(output_icon, output_state_t, output_update_cb, output_get_state)
 ZMK_SUBSCRIPTION(output_icon, zmk_sync_output_state);
 
 /* ================= RIGHT (CENTRAL) BATTERY ================= */
@@ -194,6 +195,7 @@ struct right_batt_state {
     bool charging;
     bool have_state;
 };
+typedef struct right_batt_state right_batt_state_t;
 
 static void set_right_battery(struct right_batt_state st)
 {
@@ -229,7 +231,7 @@ static void right_batt_update_cb(struct right_batt_state st)
     set_right_battery(st);
 }
 
-ZMK_DISPLAY_WIDGET_LISTENER(right_batt, struct right_batt_state, right_batt_update_cb,
+ZMK_DISPLAY_WIDGET_LISTENER(right_batt, right_batt_state_t, right_batt_update_cb,
                             right_batt_get_state)
 ZMK_SUBSCRIPTION(right_batt, zmk_sync_battery_state);
 
@@ -238,6 +240,7 @@ struct left_batt_state {
     uint8_t level;
     bool charging;
 };
+typedef struct left_batt_state left_batt_state_t;
 
 static void set_left_battery(struct left_batt_state st)
 {
@@ -269,7 +272,7 @@ static void left_batt_update_cb(struct left_batt_state st)
     set_left_battery(st);
 }
 
-ZMK_DISPLAY_WIDGET_LISTENER(left_batt, struct left_batt_state, left_batt_update_cb,
+ZMK_DISPLAY_WIDGET_LISTENER(left_batt, left_batt_state_t, left_batt_update_cb,
                             left_batt_get_state)
 ZMK_SUBSCRIPTION(left_batt, zmk_battery_state_changed);
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
@@ -280,6 +283,7 @@ ZMK_SUBSCRIPTION(left_batt, zmk_usb_conn_state_changed);
 struct layer_state {
     uint8_t index;
 };
+typedef struct layer_state layer_state_t;
 
 static void set_layer(struct layer_state st)
 {
@@ -309,7 +313,7 @@ static void layer_update_cb(struct layer_state st)
     set_layer(st);
 }
 
-ZMK_DISPLAY_WIDGET_LISTENER(layer_num, struct layer_state, layer_update_cb, layer_get_state)
+ZMK_DISPLAY_WIDGET_LISTENER(layer_num, layer_state_t, layer_update_cb, layer_get_state)
 ZMK_SUBSCRIPTION(layer_num, zmk_sync_layer_state);
 
 /* ================= SPLIT LINK (bottom) ================= */

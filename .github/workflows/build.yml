@@ -29,6 +29,7 @@ jobs:
           tail -80 /tmp/clean.log >> /tmp/diag.txt
           mkdir -p /tmp/diagout
           cp /tmp/diag.txt "/tmp/diagout/build-error.txt"
+          cp /tmp/clean.log "/tmp/diagout/build-full.log"
           cd /tmp/diagout
           git init -q
           git config user.name "github-actions[bot]"
