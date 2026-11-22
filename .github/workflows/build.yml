@@ -18,7 +18,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set +e
-          gh run view ${{ github.run_id }} --log-failed > /tmp/full.log 2>&1
+          gh run view ${{ github.run_id }} --repo ${{ github.repository }} --log-failed > /tmp/full.log 2>&1
           echo "=== COMPILE ERRORS ===" > /tmp/diag.txt
           grep -n -iE "error:|undefined reference|implicit declaration|no member named|overflowed|region .* overflow|fatal error|FAILED" /tmp/full.log | head -100 >> /tmp/diag.txt
           echo "" >> /tmp/diag.txt
