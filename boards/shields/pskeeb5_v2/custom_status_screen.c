@@ -53,18 +53,19 @@ static const struct device *const oled_dev = DEVICE_DT_GET(OLED_NODE);
 #define PALETTE_HDR 8 /* I1: 2 palette entries * lv_color32_t */
 
 /* Orientation after the base transpose (xp = ly, yp = lx).
- * The panel is mounted portrait and the user reported the render came out
- * vertically reversed with horizontally mirrored text. Enabling BOTH flips
- * rotates the whole image 180 deg, which fixes both symptoms at once.
- *   PSKEEB5_FLIP_X : 1 = mirror physical columns (fixes mirrored text)
- *   PSKEEB5_FLIP_Y : 1 = mirror physical rows    (fixes upside-down layout)
- * If only one symptom remains, toggle the matching macro and reflash.
+ * On this portrait-mounted panel the SSD1306 128-column axis (xp) runs
+ * VERTICALLY and the 32-row axis (yp) runs HORIZONTALLY.
+ *   PSKEEB5_FLIP_X : flip xp -> fixes upside-down (top/bottom) order.
+ *   PSKEEB5_FLIP_Y : flip yp -> mirrors left/right. Keep 0: text reads
+ *                    normally with this panel's scan direction; turning it
+ *                    on produces a mirrored image.
+ * Current setting: top/bottom corrected, no left/right mirror.
  */
 #ifndef PSKEEB5_FLIP_X
 #define PSKEEB5_FLIP_X 1
 #endif
 #ifndef PSKEEB5_FLIP_Y
-#define PSKEEB5_FLIP_Y 1
+#define PSKEEB5_FLIP_Y 0
 #endif
 /* pskeeb5 has inversion-on => PIXEL_FORMAT_MONO10 => bit1 = lit. */
 #ifndef PSKEEB5_MONO10
@@ -162,10 +163,10 @@ static void portrait_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t
             int32_t xp = ly;         /* physical column = logical row */
             int32_t yp = lx;         /* physical row    = logical col */
 #if PSKEEB5_FLIP_X
-            xp = PHYS_W - 1 - xp;    /* mirror horizontally (text handedness) */
+            xp = PHYS_W - 1 - xp;    /* flip column axis = physical top/bottom */
 #endif
 #if PSKEEB5_FLIP_Y
-            yp = PHYS_H - 1 - yp;    /* mirror vertically (top/bottom order) */
+            yp = PHYS_H - 1 - yp;    /* flip row axis = physical left/right mirror */
 #endif
             /* SSD1306 has SCREEN_INFO_MONO_VTILED, no MSB_FIRST:
              * byte = (yp/8)*128 + xp, bit = yp%8. */
