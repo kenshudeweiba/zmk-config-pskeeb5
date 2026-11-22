@@ -9,7 +9,8 @@
  * panel is physically rotated 90 deg, so it appears as a portrait strip. To get
  * upright, readable text we run LVGL at a genuine 32x128 PORTRAIT logical
  * resolution and TRANSPOSE the I1 render into the SSD1306 page framebuffer in
- * the flush callback (x_phys = y_logic, y_phys = x_logic).
+ * the flush callback. The base transpose is x_phys = y_logic, y_phys = x_logic,
+ * then PSKEEB5_FLIP_X / PSKEEB5_FLIP_Y correct the final on-screen orientation.
  *
  * ZMK's mono bridge (lvgl_display_mono.c) never applies LVGL rotation and the
  * SSD1306 has no set_orientation(), so we replace both the display buffers and
@@ -51,13 +52,19 @@ static const struct device *const oled_dev = DEVICE_DT_GET(OLED_NODE);
 
 #define PALETTE_HDR 8 /* I1: 2 palette entries * lv_color32_t */
 
-/* Transpose orientation. If the portrait text comes out mirrored/upside-down
- * after flashing, flip this to 0 to try the other diagonal.
- *   1 : xp = ly,        yp = lx
- *   0 : xp = PH-1-ly,   yp = PW-1-lx
+/* Orientation after the base transpose (xp = ly, yp = lx).
+ * The panel is mounted portrait and the user reported the render came out
+ * vertically reversed with horizontally mirrored text. Enabling BOTH flips
+ * rotates the whole image 180 deg, which fixes both symptoms at once.
+ *   PSKEEB5_FLIP_X : 1 = mirror physical columns (fixes mirrored text)
+ *   PSKEEB5_FLIP_Y : 1 = mirror physical rows    (fixes upside-down layout)
+ * If only one symptom remains, toggle the matching macro and reflash.
  */
-#ifndef PSKEEB5_PORTRAIT_DIR
-#define PSKEEB5_PORTRAIT_DIR 1
+#ifndef PSKEEB5_FLIP_X
+#define PSKEEB5_FLIP_X 1
+#endif
+#ifndef PSKEEB5_FLIP_Y
+#define PSKEEB5_FLIP_Y 1
 #endif
 /* pskeeb5 has inversion-on => PIXEL_FORMAT_MONO10 => bit1 = lit. */
 #ifndef PSKEEB5_MONO10
@@ -151,13 +158,14 @@ static void portrait_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t
             if (!v) {
                 continue;
             }
-            int32_t xp, yp;
-#if PSKEEB5_PORTRAIT_DIR
-            xp = ly;                 /* physical column = logical row */
-            yp = lx;                 /* physical row    = logical col */
-#else
-            xp = PHYS_W - 1 - ly;
-            yp = PHYS_H - 1 - lx;
+            /* Base transpose: logical (lx,ly) -> physical (xp,yp). */
+            int32_t xp = ly;         /* physical column = logical row */
+            int32_t yp = lx;         /* physical row    = logical col */
+#if PSKEEB5_FLIP_X
+            xp = PHYS_W - 1 - xp;    /* mirror horizontally (text handedness) */
+#endif
+#if PSKEEB5_FLIP_Y
+            yp = PHYS_H - 1 - yp;    /* mirror vertically (top/bottom order) */
 #endif
             /* SSD1306 has SCREEN_INFO_MONO_VTILED, no MSB_FIRST:
              * byte = (yp/8)*128 + xp, bit = yp%8. */
