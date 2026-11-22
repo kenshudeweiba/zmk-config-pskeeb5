@@ -1,0 +1,86 @@
+=== COMPILE ERRORS ===
+506:2026-11-22T07:37:19.2269922Z devicetree error: /tmp/zmk-config/config/pskeeb5_v2.keymap:188 (column 24): parse error: expected number or parenthesized expression
+508:2026-11-22T07:37:19.2377447Z   execute_process failed command indexes:
+520:2026-11-22T07:37:19.2431518Z FATAL ERROR: command exited with status 1: /usr/local/bin/cmake -DWEST_PYTHON=/usr/bin/python3 -B/tmp/tmp.JcekEz80tS -GNinja -DBOARD=nice_nano//zmk -DZMK_CONFIG=/tmp/zmk-config/config -DSHIELD=pskeeb5_v2_right -DZMK_EXTRA_MODULES=/__w/zmk-config-pskeeb5/zmk-config-pskeeb5 -DSNIPPET=studio-rpc-usb-uart -S/tmp/zmk-config/zmk/app
+
+=== LAST 80 LINES ===
+2026-11-22T07:37:19.4465944Z             &kp ((((0x07) << 16) | (0x04))) &kp ((((0x07) << 16) | (0x16))) &kp ((((0x07) << 16) | (0x07))) &kp ((((0x07) << 16) | (0x09))) &kp ((((0x07) << 16) | (0x0A))) &kp ((((0x07) << 16) | (0x0B))) &kp ((((0x07) << 16) | (0x0D))) &kp ((((0x07) << 16) | (0x0E))) &kp ((((0x07) << 16) | (0x0F))) &kp (((((0x07) << 16) | (0x33))))
+2026-11-22T07:37:19.4465951Z 
+2026-11-22T07:37:19.4466497Z             &kp ((((0x07) << 16) | (0x1D))) &kp ((((0x07) << 16) | (0x1B))) &kp ((((0x07) << 16) | (0x06))) &kp ((((0x07) << 16) | (0x19))) &kp ((((0x07) << 16) | (0x05))) &kp ((((0x07) << 16) | (0x11))) &kp ((((0x07) << 16) | (0x10))) &kp ((((0x07) << 16) | (0x36))) &kp (((((0x07) << 16) | (0x37)))) &kp (((((0x07) << 16) | (0x38))))
+2026-11-22T07:37:19.4466501Z 
+2026-11-22T07:37:19.4466874Z                        &to 0 &kp (((((0x07) << 16) | (0x28)))) &kp (((((0x07) << 16) | (0x29)))) &mkp ((1UL << (1))) &mkp ((1UL << (0))) &kp (((((0x07) << 16) | (0x2A)))) &kp ((((0x07) << 16) | (0x2C))) &kp (((((0x0C) << 16) | (0xCD))))
+2026-11-22T07:37:19.4466879Z 
+2026-11-22T07:37:19.4466961Z             >;
+2026-11-22T07:37:19.4467290Z             sensor-bindings = <&inc_dec_kp (((((0x0C) << 16) | (0xEA)))) (((((0x0C) << 16) | (0xE9)))) &inc_dec_kp (((((0x07) << 16) | (0x50)))) (((((0x07) << 16) | (0x4F))))>;
+2026-11-22T07:37:19.4467365Z         };
+2026-11-22T07:37:19.4467372Z 
+2026-11-22T07:37:19.4467460Z         layer_13 {
+2026-11-22T07:37:19.4467602Z             bindings = <
+2026-11-22T07:37:19.4467606Z 
+2026-11-22T07:37:19.4468131Z             &kp ((((0x07) << 16) | (0x14))) &kp ((((0x07) << 16) | (0x1A))) &kp ((((0x07) << 16) | (0x08))) &kp ((((0x07) << 16) | (0x15))) &kp ((((0x07) << 16) | (0x17))) &kp ((((0x07) << 16) | (0x1C))) &kp ((((0x07) << 16) | (0x18))) &kp ((((0x07) << 16) | (0x0C))) &kp ((((0x07) << 16) | (0x12))) &kp ((((0x07) << 16) | (0x13)))
+2026-11-22T07:37:19.4468144Z 
+2026-11-22T07:37:19.4468671Z             &kp ((((0x07) << 16) | (0x04))) &kp ((((0x07) << 16) | (0x16))) &kp ((((0x07) << 16) | (0x07))) &kp ((((0x07) << 16) | (0x09))) &kp ((((0x07) << 16) | (0x0A))) &kp ((((0x07) << 16) | (0x0B))) &kp ((((0x07) << 16) | (0x0D))) &kp ((((0x07) << 16) | (0x0E))) &kp ((((0x07) << 16) | (0x0F))) &kp (((((0x07) << 16) | (0x33))))
+2026-11-22T07:37:19.4468676Z 
+2026-11-22T07:37:19.4469210Z             &kp ((((0x07) << 16) | (0x1D))) &kp ((((0x07) << 16) | (0x1B))) &kp ((((0x07) << 16) | (0x06))) &kp ((((0x07) << 16) | (0x19))) &kp ((((0x07) << 16) | (0x05))) &kp ((((0x07) << 16) | (0x11))) &kp ((((0x07) << 16) | (0x10))) &kp ((((0x07) << 16) | (0x36))) &kp (((((0x07) << 16) | (0x37)))) &kp (((((0x07) << 16) | (0x38))))
+2026-11-22T07:37:19.4469267Z 
+2026-11-22T07:37:19.4469648Z                        &to 0 &kp (((((0x07) << 16) | (0x28)))) &kp (((((0x07) << 16) | (0x29)))) &mkp ((1UL << (1))) &mkp ((1UL << (0))) &kp (((((0x07) << 16) | (0x2A)))) &kp ((((0x07) << 16) | (0x2C))) &kp (((((0x0C) << 16) | (0xCD))))
+2026-11-22T07:37:19.4469652Z 
+2026-11-22T07:37:19.4469736Z             >;
+2026-11-22T07:37:19.4470057Z             sensor-bindings = <&inc_dec_kp (((((0x0C) << 16) | (0xEA)))) (((((0x0C) << 16) | (0xE9)))) &inc_dec_kp (((((0x07) << 16) | (0x50)))) (((((0x07) << 16) | (0x4F))))>;
+2026-11-22T07:37:19.4470139Z         };
+2026-11-22T07:37:19.4470143Z 
+2026-11-22T07:37:19.4470230Z         layer_14 {
+2026-11-22T07:37:19.4470312Z             bindings = <
+2026-11-22T07:37:19.4470318Z 
+2026-11-22T07:37:19.4470853Z             &kp ((((0x07) << 16) | (0x14))) &kp ((((0x07) << 16) | (0x1A))) &kp ((((0x07) << 16) | (0x08))) &kp ((((0x07) << 16) | (0x15))) &kp ((((0x07) << 16) | (0x17))) &kp ((((0x07) << 16) | (0x1C))) &kp ((((0x07) << 16) | (0x18))) &kp ((((0x07) << 16) | (0x0C))) &kp ((((0x07) << 16) | (0x12))) &kp ((((0x07) << 16) | (0x13)))
+2026-11-22T07:37:19.4470857Z 
+2026-11-22T07:37:19.4471400Z             &kp ((((0x07) << 16) | (0x04))) &kp ((((0x07) << 16) | (0x16))) &kp ((((0x07) << 16) | (0x07))) &kp ((((0x07) << 16) | (0x09))) &kp ((((0x07) << 16) | (0x0A))) &kp ((((0x07) << 16) | (0x0B))) &kp ((((0x07) << 16) | (0x0D))) &kp ((((0x07) << 16) | (0x0E))) &kp ((((0x07) << 16) | (0x0F))) &kp (((((0x07) << 16) | (0x33))))
+2026-11-22T07:37:19.4471404Z 
+2026-11-22T07:37:19.4471937Z             &kp ((((0x07) << 16) | (0x1D))) &kp ((((0x07) << 16) | (0x1B))) &kp ((((0x07) << 16) | (0x06))) &kp ((((0x07) << 16) | (0x19))) &kp ((((0x07) << 16) | (0x05))) &kp ((((0x07) << 16) | (0x11))) &kp ((((0x07) << 16) | (0x10))) &kp ((((0x07) << 16) | (0x36))) &kp (((((0x07) << 16) | (0x37)))) &kp (((((0x07) << 16) | (0x38))))
+2026-11-22T07:37:19.4471945Z 
+2026-11-22T07:37:19.4472317Z                        &to 0 &kp (((((0x07) << 16) | (0x28)))) &kp (((((0x07) << 16) | (0x29)))) &mkp ((1UL << (1))) &mkp ((1UL << (0))) &kp (((((0x07) << 16) | (0x2A)))) &kp ((((0x07) << 16) | (0x2C))) &kp (((((0x0C) << 16) | (0xCD))))
+2026-11-22T07:37:19.4472321Z 
+2026-11-22T07:37:19.4472406Z             >;
+2026-11-22T07:37:19.4472807Z             sensor-bindings = <&inc_dec_kp (((((0x0C) << 16) | (0xEA)))) (((((0x0C) << 16) | (0xE9)))) &inc_dec_kp (((((0x07) << 16) | (0x50)))) (((((0x07) << 16) | (0x4F))))>;
+2026-11-22T07:37:19.4472887Z         };
+2026-11-22T07:37:19.4472972Z     };
+2026-11-22T07:37:19.4473057Z };
+2026-11-22T07:37:19.4473143Z # 0 "<command-line>" 2
+2026-11-22T07:37:19.4473398Z # 1 "/tmp/zmk-config/zmk/app/snippets/studio-rpc-usb-uart/studio-rpc-usb-uart.overlay" 1
+2026-11-22T07:37:19.4473407Z 
+2026-11-22T07:37:19.4473487Z / {
+2026-11-22T07:37:19.4473627Z     chosen {
+2026-11-22T07:37:19.4473780Z         zmk,studio-rpc-uart = &snippet_studio_rpc_usb_uart;
+2026-11-22T07:37:19.4473855Z     };
+2026-11-22T07:37:19.4473935Z };
+2026-11-22T07:37:19.4473939Z 
+2026-11-22T07:37:19.4474028Z &zephyr_udc0 {
+2026-11-22T07:37:19.4474185Z     snippet_studio_rpc_usb_uart: snippet_studio_rpc_usb_uart {
+2026-11-22T07:37:19.4474305Z         compatible = "zephyr,cdc-acm-uart";
+2026-11-22T07:37:19.4474387Z     };
+2026-11-22T07:37:19.4474459Z };
+2026-11-22T07:37:19.4474555Z # 0 "<command-line>" 2
+2026-11-22T07:37:19.4474676Z # 1 "/tmp/zmk-config/zephyr/misc/empty_file.c"
+2026-11-22T07:37:19.4581206Z Post job cleanup.
+2026-11-22T07:37:19.4589361Z ##[command]/usr/bin/docker exec  28d9a9985a19aac4d4bc2b23586e4144deac9f99859f48fd0519c828891bb663 sh -c "cat /etc/*release | grep ^ID"
+2026-11-22T07:37:19.6438125Z [command]/usr/bin/git version
+2026-11-22T07:37:19.6479632Z git version 2.43.0
+2026-11-22T07:37:19.6524610Z Temporarily overriding HOME='/__w/_temp/107b1b21-b558-4479-bdfb-f8e7ce6e46bc' before making global git config changes
+2026-11-22T07:37:19.6526320Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-22T07:37:19.6530831Z [command]/usr/bin/git config --global --add safe.directory /__w/zmk-config-pskeeb5/zmk-config-pskeeb5
+2026-11-22T07:37:19.6568164Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-22T07:37:19.6603792Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-22T07:37:19.6820818Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-22T07:37:19.6841842Z http.https://github.com/.extraheader
+2026-11-22T07:37:19.6856487Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-11-22T07:37:19.6892043Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-22T07:37:19.7119733Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-22T07:37:19.7151023Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-22T07:37:19.7538715Z Stop and remove container: 3620e01f0924475db9d3eca7dd50ff0c_zmkfirmwarezmkbuildarmstable_dafc65
+2026-11-22T07:37:19.7549647Z ##[command]/usr/bin/docker rm --force 28d9a9985a19aac4d4bc2b23586e4144deac9f99859f48fd0519c828891bb663
+2026-11-22T07:37:39.7157261Z 28d9a9985a19aac4d4bc2b23586e4144deac9f99859f48fd0519c828891bb663
+2026-11-22T07:37:39.7185066Z Remove container network: github_network_db947e893a024b4aab859440efe19723
+2026-11-22T07:37:39.7188752Z ##[command]/usr/bin/docker network rm github_network_db947e893a024b4aab859440efe19723
+2026-11-22T07:37:39.7715059Z github_network_db947e893a024b4aab859440efe19723
+2026-11-22T07:37:39.7804611Z Cleaning up orphan processes
+2026-11-22T07:37:39.8109107Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/cache@v4, actions/checkout@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
