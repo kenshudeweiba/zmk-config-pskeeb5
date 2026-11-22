@@ -2,14 +2,42 @@ on: [push, pull_request, workflow_dispatch]
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   build:
     uses: zmkfirmware/zmk/.github/workflows/build-user-config.yml@v0.3
 
+  diagnose:
+    needs: build
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch failed build log to branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          gh run view ${{ github.run_id }} --log-failed > /tmp/full.log 2>&1
+          echo "=== COMPILE ERRORS ===" > /tmp/diag.txt
+          grep -n -iE "error:|undefined reference|implicit declaration|no member named|overflowed|region .* overflow|fatal error|FAILED" /tmp/full.log | head -100 >> /tmp/diag.txt
+          echo "" >> /tmp/diag.txt
+          echo "=== LAST 80 LINES ===" >> /tmp/diag.txt
+          tail -80 /tmp/full.log >> /tmp/diag.txt
+          mkdir -p /tmp/diagout
+          cp /tmp/diag.txt "/tmp/diagout/build-error.txt"
+          cd /tmp/diagout
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "diag: build error log" || true
+          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git push -f origin HEAD:diagnostics || echo "DIAG_PUSH_FAILED"
+
   publish:
     needs: build
-    if: github.event_name != 'pull_request'
+    if: success() && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - name: Download firmware artifact
