@@ -19,9 +19,9 @@
  *
  * Screen layout (physical top -> bottom, logical 32 wide x 128 tall):
  *   ~ly 4   : output / connection icon (BT, USB, X, charging)
- *   ~ly 20  : LEFT half battery
- *   ~ly 38  : RIGHT half battery (synced from central)
- *   ~ly 62  : active layer, large bold number (no icon)
+ *   ~ly 20  : LEFT half battery, number only (e.g. L85)
+ *   ~ly 38  : RIGHT half battery, number only (e.g. R90)
+ *   ~ly 62  : active layer, large plain number (no icon, no fake bold)
  */
 
 #include <zmk/display/widgets/peripheral_status.h>
@@ -87,8 +87,7 @@ static lv_obj_t *screen;
 static lv_obj_t *lbl_output;
 static lv_obj_t *lbl_batt_left;
 static lv_obj_t *lbl_batt_right;
-static lv_obj_t *lbl_layer;       /* main layer number */
-static lv_obj_t *lbl_layer_shadow; /* 1px offset copy to fake bold */
+static lv_obj_t *lbl_layer; /* active layer number, plain (no shadow/bold) */
 static lv_obj_t *lbl_link;
 
 /* Fonts: 12px for icons/text, 16px for the large layer number.
@@ -100,30 +99,15 @@ static lv_obj_t *make_label(int32_t y)
 {
     lv_obj_t *lbl = lv_label_create(screen);
     lv_obj_set_style_text_font(lbl, font_12, 0);
+    /* Slightly reduce glyph coverage: on this 1-bit OLED that thins the
+     * strokes instead of rendering them at full weight. */
+    lv_obj_set_style_text_opa(lbl, 200, 0);
     /* Inherit the active theme's foreground color. ZMK's mono theme uses
      * black text on a light background unless CONFIG_ZMK_DISPLAY_INVERT is
      * enabled, so forcing white here makes the labels invisible. */
     lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 1, y);
     lv_label_set_text(lbl, " ");
     return lbl;
-}
-
-/* Map a battery percentage to a Montserrat battery icon. */
-static const char *battery_icon(uint8_t level, bool charging)
-{
-    if (charging) {
-        return LV_SYMBOL_CHARGE;
-    }
-    if (level > 95) {
-        return LV_SYMBOL_BATTERY_FULL;
-    } else if (level > 65) {
-        return LV_SYMBOL_BATTERY_3;
-    } else if (level > 35) {
-        return LV_SYMBOL_BATTERY_2;
-    } else if (level > 5) {
-        return LV_SYMBOL_BATTERY_1;
-    }
-    return LV_SYMBOL_BATTERY_EMPTY;
 }
 
 /* ================= OUTPUT / CONNECTION ICON =================
@@ -217,7 +201,8 @@ static void set_right_battery(struct right_batt_state st)
         return;
     }
     char text[16] = {};
-    snprintf(text, sizeof(text), "R %s", battery_icon(st.level, st.charging));
+    /* Number only: keep it compact so 100% still fits the 32px-wide strip. */
+    snprintf(text, sizeof(text), "R%u", st.level);
     lv_label_set_text(lbl_batt_right, text);
 }
 
@@ -272,7 +257,7 @@ static void set_left_battery(struct left_batt_state st)
         return;
     }
     char text[16] = {};
-    snprintf(text, sizeof(text), "L %s", battery_icon(st.level, st.charging));
+    snprintf(text, sizeof(text), "L%u", st.level);
     lv_label_set_text(lbl_batt_left, text);
 }
 
@@ -313,7 +298,7 @@ ZMK_SUBSCRIPTION(left_batt, zmk_battery_state_changed);
 ZMK_SUBSCRIPTION(left_batt, zmk_usb_conn_state_changed);
 #endif /* CONFIG_USB_DEVICE_STACK */
 
-/* ================= LAYER (large bold number, no icon) ================= */
+/* ================= LAYER (large plain number, no icon, no bold) ================= */
 struct layer_state {
     uint8_t index;
 };
@@ -327,10 +312,6 @@ static void set_layer(struct layer_state st)
     char text[8] = {};
     snprintf(text, sizeof(text), "%u", st.index);
     lv_label_set_text(lbl_layer, text);
-    /* Fake bold: draw the same digit offset by 1px underneath. */
-    if (lbl_layer_shadow != NULL) {
-        lv_label_set_text(lbl_layer_shadow, text);
-    }
 }
 
 static struct layer_state layer_get_state(const zmk_event_t *eh)
@@ -438,15 +419,10 @@ lv_obj_t *zmk_display_status_screen(void)
     lbl_batt_left = make_label(20);
     /* RIGHT half battery (12px) */
     lbl_batt_right = make_label(37);
-    /* Middle: large bold layer number (16px, fake-bold via 1px offset copy).
-     * Shadow created first so the main label draws on top of it. */
-    lbl_layer_shadow = lv_label_create(screen);
-    lv_obj_set_style_text_font(lbl_layer_shadow, font_16, 0);
-    lv_obj_align(lbl_layer_shadow, LV_ALIGN_TOP_MID, 0, 63);
-    lv_label_set_text(lbl_layer_shadow, "0");
-
+    /* Middle: large plain layer number (16px, no fake bold). */
     lbl_layer = lv_label_create(screen);
     lv_obj_set_style_text_font(lbl_layer, font_16, 0);
+    lv_obj_set_style_text_opa(lbl_layer, 200, 0);
     lv_obj_align(lbl_layer, LV_ALIGN_TOP_MID, 0, 62);
     lv_label_set_text(lbl_layer, "0");
     /* Bottom: split link */
@@ -454,6 +430,7 @@ lv_obj_t *zmk_display_status_screen(void)
     zmk_widget_peripheral_status_init(&peripheral_status_widget, screen);
     lbl_link = zmk_widget_peripheral_status_obj(&peripheral_status_widget);
     lv_obj_set_style_text_font(lbl_link, font_12, 0);
+    lv_obj_set_style_text_opa(lbl_link, 200, 0);
     lv_obj_align(lbl_link, LV_ALIGN_TOP_LEFT, 1, 112);
 #endif
 
