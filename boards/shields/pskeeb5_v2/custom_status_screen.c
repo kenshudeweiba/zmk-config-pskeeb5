@@ -100,7 +100,9 @@ static lv_obj_t *make_label(int32_t y)
 {
     lv_obj_t *lbl = lv_label_create(screen);
     lv_obj_set_style_text_font(lbl, font_12, 0);
-    lv_obj_set_style_text_color(lbl, lv_color_white(), 0);
+    /* Inherit the active theme's foreground color. ZMK's mono theme uses
+     * black text on a light background unless CONFIG_ZMK_DISPLAY_INVERT is
+     * enabled, so forcing white here makes the labels invisible. */
     lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 1, y);
     lv_label_set_text(lbl, " ");
     return lbl;
@@ -440,13 +442,11 @@ lv_obj_t *zmk_display_status_screen(void)
      * Shadow created first so the main label draws on top of it. */
     lbl_layer_shadow = lv_label_create(screen);
     lv_obj_set_style_text_font(lbl_layer_shadow, font_16, 0);
-    lv_obj_set_style_text_color(lbl_layer_shadow, lv_color_white(), 0);
     lv_obj_align(lbl_layer_shadow, LV_ALIGN_TOP_MID, 0, 63);
     lv_label_set_text(lbl_layer_shadow, "0");
 
     lbl_layer = lv_label_create(screen);
     lv_obj_set_style_text_font(lbl_layer, font_16, 0);
-    lv_obj_set_style_text_color(lbl_layer, lv_color_white(), 0);
     lv_obj_align(lbl_layer, LV_ALIGN_TOP_MID, 0, 62);
     lv_label_set_text(lbl_layer, "0");
     /* Bottom: split link */
