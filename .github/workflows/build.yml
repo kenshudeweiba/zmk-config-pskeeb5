@@ -20,12 +20,13 @@ jobs:
           set +e
           FAILED_JOB=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs --jq '.jobs[] | select(.conclusion=="failure") | .id' | head -1)
           echo "failed job: $FAILED_JOB"
-          gh api repos/${{ github.repository }}/actions/jobs/$FAILED_JOB/logs > /tmp/full.log 2>&1
+          gh api --allow-escape-sequences repos/${{ github.repository }}/actions/jobs/$FAILED_JOB/logs > /tmp/full.log 2>&1
+          sed -r 's/\x1B\[[0-9;]*[mK]//g' /tmp/full.log > /tmp/clean.log
           echo "=== COMPILE ERRORS ===" > /tmp/diag.txt
-          grep -n -iE "error:|undefined reference|implicit declaration|no member named|overflowed|region .* overflow|fatal error|FAILED" /tmp/full.log | head -100 >> /tmp/diag.txt
+          grep -n -iE "error:|undefined reference|implicit declaration|no member named|overflowed|region .* overflow|fatal error|FAILED" /tmp/clean.log | head -100 >> /tmp/diag.txt
           echo "" >> /tmp/diag.txt
           echo "=== LAST 80 LINES ===" >> /tmp/diag.txt
-          tail -80 /tmp/full.log >> /tmp/diag.txt
+          tail -80 /tmp/clean.log >> /tmp/diag.txt
           mkdir -p /tmp/diagout
           cp /tmp/diag.txt "/tmp/diagout/build-error.txt"
           cd /tmp/diagout
