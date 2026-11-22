@@ -54,12 +54,17 @@ static void report_delayed_cb(struct k_work *work)
 static K_WORK_DELAYABLE_DEFINE(report_delayed_work, report_delayed_cb);
 #endif /* CONFIG_ZMK_SPLIT_ROLE_CENTRAL */
 
+#define MOUSE_SPEED_INCR 1
+#define MOUSE_SPEED_DECR 2
+#define SPEED_STEP 10
+
 static int on_pressed(struct zmk_behavior_binding *binding,
                       struct zmk_behavior_binding_event event)
 {
     ARG_UNUSED(event);
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
-    if (zmk_mouse_ps2_tp_sensitivity_change(binding->param1) == 0) {
+    int amount = (binding->param1 == MOUSE_SPEED_DECR) ? -SPEED_STEP : SPEED_STEP;
+    if (zmk_mouse_ps2_tp_sensitivity_change(amount) == 0) {
         report_speed();
     }
 #else

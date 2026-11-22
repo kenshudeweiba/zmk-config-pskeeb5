@@ -22,9 +22,10 @@
 
 #include <behaviors/mouse_setting.dtsi>
 #include <dt-bindings/zmk/mouse_settings.h>
-/* Adjust trackpoint speed and push the new value to the left OLED. */
-#define U_MSS_TP_S_I &mss_report 10
-#define U_MSS_TP_S_D &mss_report -10
+/* Adjust trackpoint speed and push the new value to the left OLED.
+ * Devicetree binding params must be non-negative, so 1 = +10, 2 = -10. */
+#define U_MSS_TP_S_I &mss_report 1
+#define U_MSS_TP_S_D &mss_report 2
 
 / {
     behaviors {
