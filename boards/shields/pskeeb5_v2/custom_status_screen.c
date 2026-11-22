@@ -32,6 +32,7 @@
 #include <zmk/events/sync_battery_state.h>
 #include <zmk/events/sync_layer_state.h>
 #include <zmk/events/battery_state_changed.h>
+#include <zmk/battery.h>
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
 #include <zmk/events/usb_conn_state_changed.h>
 #include <zmk/usb.h>
@@ -45,6 +46,9 @@
 #include <zephyr/drivers/display.h>
 #include <zephyr/sys/util.h>
 #include <zephyr/logging/log.h>
+
+#include <stdio.h>
+#include <string.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
