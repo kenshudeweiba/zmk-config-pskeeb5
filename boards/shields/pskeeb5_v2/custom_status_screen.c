@@ -6,33 +6,31 @@
  * PORTRAIT (physically 32 wide x 128 tall).
  *
  * The SSD1306 controller framebuffer is always 128 columns x 32 rows, but the
- * panel is physically rotated 90 deg, so it appears as a portrait strip. We run
- * LVGL at a genuine 32x128 PORTRAIT logical resolution and TRANSPOSE the I1
- * render into the SSD1306 page framebuffer in the flush callback. The base
- * transpose is x_phys = y_logic, y_phys = x_logic, then PSKEEB5_FLIP_X /
- * PSKEEB5_FLIP_Y correct the final on-screen orientation.
+ * panel is physically rotated 90 deg, so it appears as a portrait strip. We
+ * run LVGL at a genuine 32x128 PORTRAIT logical resolution and TRANSPOSE the
+ * render into the SSD1306 page framebuffer in the flush callback.
  *
- * ZMK's mono bridge (lvgl_display_mono.c) never applies LVGL rotation and the
- * SSD1306 has no set_orientation(), so we replace both the display buffers and
- * the flush callback. 32x128 I1 = 512 bytes + 8 palette bytes = 520, identical
- * to the original 128x32 buffer size, so the existing buffer memory is enough.
+ * IMPORTANT: every glyph/icon here is hand-drawn as a 1-pixel-line bitmap.
+ * LV_SYMBOL_* are solid FontAwesome glyphs baked into the font and look like
+ * blurry blobs on a 1-bit OLED at small sizes, so we never use them. We also
+ * bypass LVGL's label rendering entirely and blit our own bitmaps directly
+ * into a 32x128 art canvas, which the flush callback transposes to the panel.
  *
- * Screen layout (physical top -> bottom, logical 32 wide x 128 tall):
- *   ~ly 4   : output / connection icon (BT, USB, X, charging)
- *   ~ly 20  : LEFT half battery, number only (e.g. L85)
- *   ~ly 38  : RIGHT half battery, number only (e.g. R90)
- *   ~ly 62  : active layer number, thin 8px stroke (no icon, no bold)
+ * Screen layout (logical 32 wide x 128 tall):
+ *   y=3   : output / connection icon (BT, USB, X) + charging / profile mark
+ *   y=24  : LEFT half battery, number only (e.g. L85)
+ *   y=40  : RIGHT half battery, number only (e.g. R90)
+ *   y=62  : active layer, large thin-line number
+ *   y=110 : split link status (link + OK / X)
  */
-
-#include <zmk/display/widgets/peripheral_status.h>
-#include <zmk/display/status_screen.h>
-#include <zmk/display.h>
 
 #include <zmk/event_manager.h>
 #include <zmk/events/sync_output_state.h>
 #include <zmk/events/sync_battery_state.h>
 #include <zmk/events/sync_layer_state.h>
 #include <zmk/events/battery_state_changed.h>
+#include <zmk/events/split_peripheral_status_changed.h>
+#include <zmk/split/bluetooth/peripheral.h>
 #include <zmk/battery.h>
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
 #include <zmk/events/usb_conn_state_changed.h>
@@ -59,12 +57,13 @@ static const struct device *const oled_dev = DEVICE_DT_GET(OLED_NODE);
 
 #define LOGIC_W 32
 #define LOGIC_H 128
+#define ART_BYTES (LOGIC_W * LOGIC_H / 8) /* 512 */
 
 #define PHYS_W 128
 #define PHYS_H 32
-#define PHYS_STRIDE (PHYS_W / 8)            /* 16 bytes per page */
-#define FRAME_BYTES (PHYS_STRIDE * PHYS_H)  /* 512 */
-#define PALETTE_HDR 8                        /* I1: 2 palette entries * lv_color32_t */
+#define PHYS_STRIDE (PHYS_W / 8)
+#define FRAME_BYTES (PHYS_STRIDE * PHYS_H)
+#define PALETTE_HDR 8
 
 /* Verified orientation: FLIP_X fixes top/bottom, no left/right mirror. */
 #ifndef PSKEEB5_FLIP_X
@@ -73,7 +72,6 @@ static const struct device *const oled_dev = DEVICE_DT_GET(OLED_NODE);
 #ifndef PSKEEB5_FLIP_Y
 #define PSKEEB5_FLIP_Y 0
 #endif
-/* pskeeb5 has inversion-on => PIXEL_FORMAT_MONO10 => bit1 = lit. */
 #ifndef PSKEEB5_MONO10
 #define PSKEEB5_MONO10 1
 #endif
@@ -81,39 +79,138 @@ static const struct device *const oled_dev = DEVICE_DT_GET(OLED_NODE);
 static uint8_t render_buf[FRAME_BYTES + PALETTE_HDR]
     __aligned(CONFIG_LV_Z_VDB_ALIGN);
 static uint8_t phys_frame[FRAME_BYTES];
+static uint8_t art[ART_BYTES];
 
-/* ---------- labels ---------- */
 static lv_obj_t *screen;
-static lv_obj_t *lbl_output;
-static lv_obj_t *lbl_batt_left;
-static lv_obj_t *lbl_batt_right;
-static lv_obj_t *lbl_layer; /* active layer number, plain (no shadow/bold) */
-static lv_obj_t *lbl_link;
 
-/* Font: stock ZMK status screen uses 8px Montserrat, whose glyph strokes are
- * exactly 1px on this 1-bit OLED -> the thin lines seen on the original
- * firmware. Larger sizes render 2-3px strokes and look artificially bold. */
-static const lv_font_t *font_8 = &lv_font_montserrat_8;
+/* ================= HAND-DRAWN 1px GLYPHS =================
+ * '#' = lit pixel, '.' = off. Every stroke is exactly one pixel wide. */
+static const char *const digit5[10][7] = {
+    [0] = {".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."},
+    [1] = {"..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."},
+    [2] = {".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"},
+    [3] = {"####.", "....#", "....#", ".###.", "....#", "....#", "####."},
+    [4] = {"#...#", "#...#", "#...#", "#####", "....#", "....#", "....#"},
+    [5] = {"#####", "#....", "#....", "####.", "....#", "....#", "####."},
+    [6] = {".###.", "#....", "#....", "####.", "#...#", "#...#", ".###."},
+    [7] = {"#####", "....#", "...#.", "..#..", "..#..", "..#..", "..#.."},
+    [8] = {".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."},
+    [9] = {".###.", "#...#", "#...#", ".####", "....#", "....#", ".###."},
+};
 
-static lv_obj_t *make_label(int32_t y)
+static const char *const digit9[10][13] = {
+    [0] = {"..#####..", ".#.....#.", "#.......#", "#.......#", "#.......#",
+           "#.......#", "#.......#", "#.......#", "#.......#", "#.......#",
+           "#.......#", ".#.....#.", "..#####.."},
+    [1] = {"....#....", "...##....", "....#....", "....#....", "....#....",
+           "....#....", "....#....", "....#....", "....#....", "....#....",
+           "....#....", ".#######.", "........."},
+    [2] = {"..#####..", ".#.....#.", "#.......#", ".......#.", "......#..",
+           ".....#...", "....#....", "...#.....", "..#......", ".#.......",
+           "#........", "#........", "#########"},
+    [3] = {"########.", ".......#.", ".......#.", "......#..", ".....#...",
+           "..####...", ".....#...", "......#..", ".......#.", ".......#.",
+           ".......#.", "#......#.", ".######.."},
+    [4] = {"......#..", ".....##..", "....#.#..", "...#..#..", "..#...#..",
+           ".#....#..", "#.....#..", "########.", "......#..", "......#..",
+           "......#..", "......#..", "......#.."},
+    [5] = {"########.", "#........", "#........", "#........", "#######..",
+           ".......#.", ".......#.", ".......#.", ".......#.", ".......#.",
+           ".......#.", "#......#.", ".######.."},
+    [6] = {"..#####..", ".#.......", "#........", "#........", "#######..",
+           "#......#.", "#......#.", "#......#.", "#......#.", "#......#.",
+           "#......#.", ".#.....#.", "..#####.."},
+    [7] = {"########.", ".......#.", "......#..", ".....#...", "....#....",
+           "...#.....", "...#.....", "...#.....", "..#......", "..#......",
+           ".#.......", ".#.......", ".#......."},
+    [8] = {"..#####..", ".#.....#.", "#.......#", "#.......#", "#.......#",
+           ".#######.", "#.......#", "#.......#", "#.......#", "#.......#",
+           "#.......#", ".#.....#.", "..#####.."},
+    [9] = {"..#####..", ".#.....#.", "#.......#", "#.......#", "#.......#",
+           ".#######.", ".......#.", ".......#.", ".......#.", ".......#.",
+           ".......#.", "......#..", ".#####..."},
+};
+
+static const char *const glyph_L[] = {
+    "#....", "#....", "#....", "#....", "#....", "#....", "#####",
+};
+static const char *const glyph_R[] = {
+    "####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#",
+};
+
+/* Bluetooth rune: central spine + two crossing triangular halves. */
+static const char *const icon_bt[] = {
+    "....#....", "...###...", "..#.#.#..", ".#..#..#.", "#...#...#",
+    ".#..#..#.", "..#.#.#..", "...###...", "....#....", "...###...",
+    "..#.#.#..", ".#..#..#.", "#...#...#",
+};
+/* USB trident: terminal bar, stem, two forks, device bar. */
+static const char *const icon_usb[] = {
+    ".........", "..#####..", "....#....", "....#....", "....#....",
+    "..#####..", ".#..#..#.", ".#..#..#.", ".#..#..#.", "....#....",
+    ".........", ".........",
+};
+/* Cross = not connected. */
+static const char *const icon_x[] = {
+    "#.......#", ".#.....#.", "..#...#..", "...#.#...", "....#....",
+    "...#.#...", "..#...#..", ".#.....#.", "#.......#",
+};
+/* Lightning bolt = charging. */
+static const char *const icon_charge[] = {
+    ".....#...", "....##...", "....##...", "...##....", "...#####.",
+    "..#...#..", "..#####..", ".....#...", "....##...", "....#....",
+    "...##....", "...#.....",
+};
+/* Split link: two squares joined by a bar. */
+static const char *const icon_link[] = {
+    "...........", "...........", "####...####", "#..#...#..#", "#..#####..#",
+    "#..#...#..#", "####...####", "...........", "...........",
+};
+/* Tick = connected. */
+static const char *const icon_ok[] = {
+    ".........", ".........", "........#", ".......#.", "......#..",
+    "#....#...", ".#..#....", "..##.....", ".........",
+};
+
+/* ---------- art canvas primitives ---------- */
+static void art_clear(void)
 {
-    lv_obj_t *lbl = lv_label_create(screen);
-    lv_obj_set_style_text_font(lbl, font_8, 0);
-    /* Inherit the active theme's foreground color. ZMK's mono theme uses
-     * black text on a light background unless CONFIG_ZMK_DISPLAY_INVERT is
-     * enabled, so forcing white here makes the labels invisible. */
-    lv_obj_align(lbl, LV_ALIGN_TOP_LEFT, 1, y);
-    lv_label_set_text(lbl, " ");
-    return lbl;
+    memset(art, 0, sizeof(art));
 }
 
-/* ================= OUTPUT / CONNECTION ICON =================
- * Data comes from the central (right) half via sync.
- *   USB selected/connected  -> USB icon
- *   BLE connected           -> Bluetooth icon + profile number
- *   BLE not connected / none-> X (cross), i.e. "not connected"
- *   Charging (central)      -> charging icon appended
- */
+static void art_pixel(int x, int y)
+{
+    if (x < 0 || x >= LOGIC_W || y < 0 || y >= LOGIC_H) {
+        return;
+    }
+    uint32_t idx = (uint32_t)y * LOGIC_W + (uint32_t)x;
+    art[idx >> 3] |= BIT(7 - (idx & 7));
+}
+
+static void art_blit(int x, int y, const char *const *rows, int w, int h)
+{
+    for (int r = 0; r < h; r++) {
+        for (int c = 0; c < w; c++) {
+            if (rows[r][c] == '#') {
+                art_pixel(x + c, y + r);
+            }
+        }
+    }
+}
+
+static void art_number_small(int x, int y, uint16_t value)
+{
+    char buf[4] = {};
+    int n = snprintf(buf, sizeof(buf), "%u", value);
+    for (int i = 0; i < n; i++) {
+        unsigned int d = (unsigned int)(buf[i] - '0');
+        if (d < 10U) {
+            art_blit(x + i * 6, y, digit5[d], 5, 7);
+        }
+    }
+}
+
+/* ================= STATE ================= */
 struct output_state {
     struct zmk_endpoint_instance selected_endpoint;
     uint8_t active_profile_index;
@@ -121,242 +218,182 @@ struct output_state {
     bool active_profile_bonded;
     bool have_state;
 };
-typedef struct output_state output_state_t;
+static struct output_state output_cur_state;
 
-static void set_output_icon(struct output_state st)
+struct batt_state {
+    uint8_t level;
+    bool charging;
+    bool have_state;
+};
+static struct batt_state left_batt_cur_state;
+static struct batt_state right_batt_cur_state;
+
+struct layer_state {
+    uint8_t index;
+};
+static struct layer_state layer_cur_state;
+
+static bool link_connected;
+
+/* ================= REDRAW ================= */
+static void redraw_all(void)
 {
-    if (lbl_output == NULL) {
-        return;
-    }
-    char text[24] = {};
+    art_clear();
 
-    if (!st.have_state) {
-        strcpy(text, LV_SYMBOL_CLOSE);
+    /* --- top: output icon --- */
+    bool usb = output_cur_state.have_state &&
+               output_cur_state.selected_endpoint.transport == ZMK_TRANSPORT_USB;
+    bool ble = output_cur_state.have_state &&
+               output_cur_state.selected_endpoint.transport == ZMK_TRANSPORT_BLE;
+    bool connected = usb || ble;
+
+    if (connected) {
+        art_blit(1, 3, usb ? icon_usb : icon_bt, usb ? 9 : 9, usb ? 12 : 13);
     } else {
-        enum zmk_transport transport = st.selected_endpoint.transport;
-        bool connected = transport != ZMK_TRANSPORT_NONE;
-
-        if (connected && transport == ZMK_TRANSPORT_USB) {
-            strcat(text, LV_SYMBOL_USB);
-        } else if (connected && transport == ZMK_TRANSPORT_BLE) {
-            uint8_t profile = st.selected_endpoint.ble.profile_index + 1;
-            snprintf(text, sizeof(text), LV_SYMBOL_BLUETOOTH " %u", profile);
-        } else {
-            /* Not connected to any endpoint -> show cross. */
-            strcat(text, LV_SYMBOL_CLOSE);
-        }
+        art_blit(1, 6, icon_x, 9, 9);
     }
-    lv_label_set_text(lbl_output, text);
+    /* Charging mark, or BLE profile number, to the right of the icon. */
+    bool charging = left_batt_cur_state.charging || right_batt_cur_state.charging;
+    if (charging) {
+        art_blit(12, 3, icon_charge, 9, 12);
+    } else if (ble) {
+        art_number_small(13, 6, (uint16_t)output_cur_state.selected_endpoint.ble.profile_index + 1);
+    }
+
+    /* --- left / right battery, plain numbers --- */
+    art_blit(1, 24, glyph_L, 5, 7);
+    art_number_small(8, 24, left_batt_cur_state.level);
+    art_blit(1, 40, glyph_R, 5, 7);
+    art_number_small(8, 40, right_batt_cur_state.level);
+
+    /* --- middle: large thin layer number --- */
+    uint8_t layer = layer_cur_state.index;
+    art_blit((LOGIC_W - 9) / 2, 62, digit9[layer < 10 ? layer : 0], 9, 13);
+
+    /* --- bottom: split link status --- */
+    art_blit(1, 110, icon_link, 11, 9);
+    art_blit(13, 110, link_connected ? icon_ok : icon_x, 9, 9);
+
+    if (screen != NULL) {
+        lv_obj_invalidate(screen);
+    }
 }
 
-static struct output_state output_get_state(const zmk_event_t *eh)
-{
-    const struct zmk_sync_output_state *ev = as_zmk_sync_output_state(eh);
-    if (ev == NULL) {
-        struct output_state empty = {0};
-        return empty;
-    }
-    return (struct output_state){
-        .selected_endpoint = ev->selected_endpoint,
-        .active_profile_index = ev->active_profile_index,
-        .active_profile_connected = ev->active_profile_connected,
-        .active_profile_bonded = ev->active_profile_bonded,
-        .have_state = true,
-    };
-}
-
-static output_state_t output_cur_state;
-static void output_work_cb(struct k_work *w)
+/* All state listeners funnel into one work item on ZMK's display work queue,
+ * the same context ZMK's own display widgets use for LVGL updates. */
+static void redraw_work_cb(struct k_work *w)
 {
     ARG_UNUSED(w);
-    set_output_icon(output_cur_state);
+    redraw_all();
 }
-K_WORK_DEFINE(output_work, output_work_cb);
+K_WORK_DEFINE(redraw_work, redraw_work_cb);
 
+static void request_redraw(void)
+{
+    if (zmk_display_is_initialized()) {
+        k_work_submit_to_queue(zmk_display_work_q(), &redraw_work);
+    }
+}
+
+/* ================= EVENT: OUTPUT ================= */
 static int output_listener_cb(const zmk_event_t *eh)
 {
-    output_cur_state = output_get_state(eh);
-    if (zmk_display_is_initialized()) {
-        k_work_submit_to_queue(zmk_display_work_q(), &output_work);
+    const struct zmk_sync_output_state *ev = as_zmk_sync_output_state(eh);
+    if (ev != NULL) {
+        output_cur_state = (struct output_state){
+            .selected_endpoint = ev->selected_endpoint,
+            .active_profile_index = ev->active_profile_index,
+            .active_profile_connected = ev->active_profile_connected,
+            .active_profile_bonded = ev->active_profile_bonded,
+            .have_state = true,
+        };
+    } else {
+        output_cur_state.have_state = false;
     }
+    request_redraw();
     return ZMK_EV_EVENT_BUBBLE;
 }
 ZMK_LISTENER(output_icon, output_listener_cb);
 ZMK_SUBSCRIPTION(output_icon, zmk_sync_output_state);
 
-/* ================= RIGHT (CENTRAL) BATTERY ================= */
-struct right_batt_state {
-    uint8_t level;
-    bool charging;
-    bool have_state;
-};
-typedef struct right_batt_state right_batt_state_t;
-
-static void set_right_battery(struct right_batt_state st)
-{
-    if (lbl_batt_right == NULL) {
-        return;
-    }
-    char text[16] = {};
-    /* Number only: keep it compact so 100% still fits the 32px-wide strip. */
-    snprintf(text, sizeof(text), "R%u", st.level);
-    lv_label_set_text(lbl_batt_right, text);
-}
-
-static struct right_batt_state right_batt_get_state(const zmk_event_t *eh)
-{
-    const struct zmk_sync_battery_state *ev = as_zmk_sync_battery_state(eh);
-    if (ev == NULL) {
-        struct right_batt_state empty = {0};
-        return empty;
-    }
-    struct right_batt_state st = {
-        .level = ev->level,
-#if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
-        .charging = ev->is_charging,
-#else
-        .charging = false,
-#endif
-        .have_state = true,
-    };
-    return st;
-}
-
-static right_batt_state_t right_batt_cur_state;
-static void right_batt_work_cb(struct k_work *w)
-{
-    ARG_UNUSED(w);
-    set_right_battery(right_batt_cur_state);
-}
-K_WORK_DEFINE(right_batt_work, right_batt_work_cb);
-
+/* ================= EVENT: RIGHT BATTERY ================= */
 static int right_batt_listener_cb(const zmk_event_t *eh)
 {
-    right_batt_cur_state = right_batt_get_state(eh);
-    if (zmk_display_is_initialized()) {
-        k_work_submit_to_queue(zmk_display_work_q(), &right_batt_work);
+    const struct zmk_sync_battery_state *ev = as_zmk_sync_battery_state(eh);
+    if (ev != NULL) {
+        right_batt_cur_state = (struct batt_state){
+            .level = ev->level,
+#if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
+            .charging = ev->is_charging,
+#else
+            .charging = false,
+#endif
+            .have_state = true,
+        };
     }
+    request_redraw();
     return ZMK_EV_EVENT_BUBBLE;
 }
 ZMK_LISTENER(right_batt, right_batt_listener_cb);
 ZMK_SUBSCRIPTION(right_batt, zmk_sync_battery_state);
 
-/* ================= LEFT (LOCAL PERIPHERAL) BATTERY ================= */
-struct left_batt_state {
-    uint8_t level;
-    bool charging;
-};
-typedef struct left_batt_state left_batt_state_t;
-
-static void set_left_battery(struct left_batt_state st)
-{
-    if (lbl_batt_left == NULL) {
-        return;
-    }
-    char text[16] = {};
-    snprintf(text, sizeof(text), "L%u", st.level);
-    lv_label_set_text(lbl_batt_left, text);
-}
-
-static struct left_batt_state left_batt_get_state(const zmk_event_t *eh)
+/* ================= EVENT: LEFT BATTERY ================= */
+static int left_batt_listener_cb(const zmk_event_t *eh)
 {
     const struct zmk_battery_state_changed *ev = as_zmk_battery_state_changed(eh);
     uint8_t level = (ev != NULL) ? ev->state_of_charge : zmk_battery_state_of_charge();
-    struct left_batt_state st = {
+    left_batt_cur_state = (struct batt_state){
         .level = level,
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
         .charging = zmk_usb_is_powered(),
 #else
         .charging = false,
 #endif
+        .have_state = true,
     };
-    return st;
-}
-
-static left_batt_state_t left_batt_cur_state;
-static void left_batt_work_cb(struct k_work *w)
-{
-    ARG_UNUSED(w);
-    set_left_battery(left_batt_cur_state);
-}
-K_WORK_DEFINE(left_batt_work, left_batt_work_cb);
-
-static int left_batt_listener_cb(const zmk_event_t *eh)
-{
-    left_batt_cur_state = left_batt_get_state(eh);
-    if (zmk_display_is_initialized()) {
-        k_work_submit_to_queue(zmk_display_work_q(), &left_batt_work);
-    }
+    request_redraw();
     return ZMK_EV_EVENT_BUBBLE;
 }
 ZMK_LISTENER(left_batt, left_batt_listener_cb);
 ZMK_SUBSCRIPTION(left_batt, zmk_battery_state_changed);
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
 ZMK_SUBSCRIPTION(left_batt, zmk_usb_conn_state_changed);
-#endif /* CONFIG_USB_DEVICE_STACK */
+#endif
 
-/* ================= LAYER (plain number, thin 8px font, no icon) ================= */
-struct layer_state {
-    uint8_t index;
-};
-typedef struct layer_state layer_state_t;
-
-static void set_layer(struct layer_state st)
-{
-    if (lbl_layer == NULL) {
-        return;
-    }
-    char text[8] = {};
-    snprintf(text, sizeof(text), "%u", st.index);
-    lv_label_set_text(lbl_layer, text);
-}
-
-static struct layer_state layer_get_state(const zmk_event_t *eh)
-{
-    const struct zmk_sync_layer_state *ev = as_zmk_sync_layer_state(eh);
-    struct layer_state st = {
-        .index = (ev != NULL) ? ev->index : 0,
-    };
-    return st;
-}
-
-static layer_state_t layer_cur_state;
-static void layer_work_cb(struct k_work *w)
-{
-    ARG_UNUSED(w);
-    set_layer(layer_cur_state);
-}
-K_WORK_DEFINE(layer_work, layer_work_cb);
-
+/* ================= EVENT: LAYER ================= */
 static int layer_listener_cb(const zmk_event_t *eh)
 {
-    layer_cur_state = layer_get_state(eh);
-    if (zmk_display_is_initialized()) {
-        k_work_submit_to_queue(zmk_display_work_q(), &layer_work);
-    }
+    const struct zmk_sync_layer_state *ev = as_zmk_sync_layer_state(eh);
+    layer_cur_state.index = (ev != NULL) ? ev->index : 0;
+    request_redraw();
     return ZMK_EV_EVENT_BUBBLE;
 }
 ZMK_LISTENER(layer_num, layer_listener_cb);
 ZMK_SUBSCRIPTION(layer_num, zmk_sync_layer_state);
 
-/* ================= SPLIT LINK (bottom) ================= */
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_PERIPHERAL_STATUS)
-static struct zmk_widget_peripheral_status peripheral_status_widget;
-#endif
+/* ================= EVENT: SPLIT LINK ================= */
+static int link_listener_cb(const zmk_event_t *eh)
+{
+    ARG_UNUSED(eh);
+    link_connected = zmk_split_bt_peripheral_is_connected();
+    request_redraw();
+    return ZMK_EV_EVENT_BUBBLE;
+}
+ZMK_LISTENER(link_status, link_listener_cb);
+ZMK_SUBSCRIPTION(link_status, zmk_split_peripheral_status_changed);
 
-/* ---------- custom flush: 32x128 I1 -> transpose -> 128x32 page buffer ---------- */
+/* ---------- custom flush: 32x128 art -> transpose -> 128x32 page buffer ---------- */
 static void portrait_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
 {
     ARG_UNUSED(area);
+    ARG_UNUSED(px_map);
     ARG_UNUSED(lv_display_flush_is_last(disp));
-
-    const uint8_t *src = px_map + PALETTE_HDR;
 
     memset(phys_frame, PSKEEB5_MONO10 ? 0x00 : 0xFF, sizeof(phys_frame));
     for (int32_t ly = 0; ly < LOGIC_H; ly++) {
         for (int32_t lx = 0; lx < LOGIC_W; lx++) {
-            const uint32_t sbit = ly * LOGIC_W + lx;
-            const uint8_t v = (src[sbit >> 3] >> (7 - (sbit & 7))) & 1;
+            uint32_t idx = (uint32_t)ly * LOGIC_W + (uint32_t)lx;
+            uint8_t v = (art[idx >> 3] >> (7 - (idx & 7))) & 1;
             if (!v) {
                 continue;
             }
@@ -399,7 +436,7 @@ static void install_portrait_display(void)
                            LV_DISPLAY_RENDER_MODE_FULL);
     lv_display_set_flush_cb(disp, portrait_flush_cb);
     installed = true;
-    LOG_INF("PSKeeb5 OLED: portrait 32x128 transpose flush installed");
+    LOG_INF("PSKeeb5 OLED: portrait 32x128 thin-pixel art screen installed");
 }
 
 lv_obj_t *zmk_display_status_screen(void)
@@ -410,35 +447,25 @@ lv_obj_t *zmk_display_status_screen(void)
     lv_obj_set_style_pad_all(screen, 0, 0);
     lv_obj_set_style_border_width(screen, 0, 0);
 
-    /* Top: output/connection icon (8px) */
-    lbl_output = make_label(4);
-    /* LEFT half battery (8px) */
-    lbl_batt_left = make_label(20);
-    /* RIGHT half battery (8px) */
-    lbl_batt_right = make_label(37);
-    /* Middle: layer number, same thin 8px stroke as the rest. */
-    lbl_layer = lv_label_create(screen);
-    lv_obj_set_style_text_font(lbl_layer, font_8, 0);
-    lv_obj_align(lbl_layer, LV_ALIGN_TOP_MID, 0, 62);
-    lv_label_set_text(lbl_layer, "0");
-    /* Bottom: split link */
-#if IS_ENABLED(CONFIG_ZMK_WIDGET_PERIPHERAL_STATUS)
-    zmk_widget_peripheral_status_init(&peripheral_status_widget, screen);
-    lbl_link = zmk_widget_peripheral_status_obj(&peripheral_status_widget);
-    lv_obj_set_style_text_font(lbl_link, font_8, 0);
-    lv_obj_align(lbl_link, LV_ALIGN_TOP_LEFT, 1, 112);
+    /* Seed state from current ZMK status, then paint immediately. */
+    output_cur_state = (struct output_state){0};
+    right_batt_cur_state = (struct batt_state){
+        .level = 0,
+        .have_state = false,
+    };
+    left_batt_cur_state = (struct batt_state){
+        .level = zmk_battery_state_of_charge(),
+#if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
+        .charging = zmk_usb_is_powered(),
+#else
+        .charging = false,
 #endif
+        .have_state = true,
+    };
+    layer_cur_state = (struct layer_state){.index = 0};
+    link_connected = zmk_split_bt_peripheral_is_connected();
 
-    /* Seed initial values (NULL event => getters fall back to current state),
-     * then draw immediately so the screen is populated before the first event. */
-    output_cur_state = output_get_state(NULL);
-    right_batt_cur_state = right_batt_get_state(NULL);
-    left_batt_cur_state = left_batt_get_state(NULL);
-    layer_cur_state = layer_get_state(NULL);
-    set_output_icon(output_cur_state);
-    set_right_battery(right_batt_cur_state);
-    set_left_battery(left_batt_cur_state);
-    set_layer(layer_cur_state);
+    redraw_all();
 
     return screen;
 }
