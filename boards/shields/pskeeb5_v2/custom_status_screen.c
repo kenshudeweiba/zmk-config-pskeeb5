@@ -17,12 +17,12 @@
  * into a 32x128 art canvas, which the flush callback transposes to the panel.
  *
  * Screen layout (logical 32 wide x 128 tall), black background / white glyphs:
- *   y=3   : output / connection icon (BT, USB, X) + BLE profile mark
- *   y=24  : LEFT half battery, number (L85) or charging bolt while charging
- *   y=40  : RIGHT half battery, number (R90) or charging bolt while charging
- *   y=62  : active layer, large thin-line number
- *   y=88  : mouse speed (S + number, synced from central)
- *   y=110 : split link status (link + OK / X)
+ *   y=3   : output / connection icon (BT, USB) rotated 90 deg landscape + profile
+ *   y=24  : LEFT half battery, number (L85) or charging glyph while charging
+ *   y=40  : RIGHT half battery, number (R90) or charging glyph while charging
+ *   y=62  : active layer, large BOLD number, horizontally centered
+ *   y=90  : mouse speed (S + number, synced from central)
+ *   y=112 : split link status (link + OK / X)
  */
 
 #include <zmk/event_manager.h>
@@ -210,6 +210,34 @@ static void art_blit(int x, int y, const char *const *rows, int w, int h)
     }
 }
 
+/* Rotate a glyph 90 degrees clockwise so it lies landscape. Result occupies
+ * (h x w): new_x = x + (h - 1 - r), new_y = y + c. */
+static void art_blit_rot90(int x, int y, const char *const *rows, int w, int h)
+{
+    for (int r = 0; r < h; r++) {
+        for (int c = 0; c < w; c++) {
+            if (rows[r][c] == '#') {
+                art_pixel(x + (h - 1 - r), y + c);
+            }
+        }
+    }
+}
+
+/* Thicken every lit pixel into a 2x2 block. Result occupies (w+1) x (h+1). */
+static void art_blit_bold(int x, int y, const char *const *rows, int w, int h)
+{
+    for (int r = 0; r < h; r++) {
+        for (int c = 0; c < w; c++) {
+            if (rows[r][c] == '#') {
+                art_pixel(x + c, y + r);
+                art_pixel(x + c + 1, y + r);
+                art_pixel(x + c, y + r + 1);
+                art_pixel(x + c + 1, y + r + 1);
+            }
+        }
+    }
+}
+
 static void art_number_small(int x, int y, uint16_t value)
 {
     char buf[4] = {};
@@ -271,15 +299,20 @@ static void redraw_all(void)
                output_cur_state.selected_endpoint.transport == ZMK_TRANSPORT_BLE;
     bool connected = usb || ble;
 
+    /* Top connection icon is rotated 90 deg so it lies landscape across the
+     * portrait strip. Rotated footprint: BT 13x9, USB 12x9, X 9x9. */
     if (connected) {
-        art_blit(1, 3, usb ? icon_usb : icon_bt, usb ? 9 : 9, usb ? 12 : 13);
+        if (usb) {
+            art_blit_rot90(1, 3, icon_usb, 9, 12);
+        } else {
+            art_blit_rot90(1, 3, icon_bt, 9, 13);
+        }
     } else {
-        art_blit(1, 6, icon_x, 9, 9);
+        art_blit(1, 3, icon_x, 9, 9);
     }
-    /* BLE profile number to the right of the top icon (charging is now shown
-     * on the battery rows instead). */
+    /* BLE profile number to the right of the (now landscape) top icon. */
     if (ble) {
-        art_number_small(13, 6, (uint16_t)output_cur_state.selected_endpoint.ble.profile_index + 1);
+        art_number_small(16, 4, (uint16_t)output_cur_state.selected_endpoint.ble.profile_index + 1);
     }
 
     /* --- left / right battery: number, or charging glyph instead of the
@@ -297,19 +330,20 @@ static void redraw_all(void)
         art_number_small(8, 40, right_batt_cur_state.level);
     }
 
-    /* --- middle: large thin layer number --- */
+    /* --- middle: large BOLD layer number, horizontally centered.
+     * digit9 is 9x13; the bold blit expands it to 10x14. --- */
     uint8_t layer = layer_cur_state.index;
-    art_blit((LOGIC_W - 9) / 2, 62, digit9[layer < 10 ? layer : 0], 9, 13);
+    art_blit_bold((LOGIC_W - 10) / 2, 62, digit9[layer < 10 ? layer : 0], 9, 13);
 
     /* --- below layer: mouse speed (S + number) --- */
     if (mouse_speed_known) {
-        art_blit(2, 88, glyph_S, 5, 7);
-        art_number_small(9, 88, mouse_speed);
+        art_blit(2, 90, glyph_S, 5, 7);
+        art_number_small(9, 90, mouse_speed);
     }
 
     /* --- bottom: split link status --- */
-    art_blit(1, 110, icon_link, 11, 9);
-    art_blit(13, 110, link_connected ? icon_ok : icon_x, 9, 9);
+    art_blit(1, 112, icon_link, 11, 9);
+    art_blit(13, 112, link_connected ? icon_ok : icon_x, 9, 9);
 
     if (screen != NULL) {
         lv_obj_invalidate(screen);
