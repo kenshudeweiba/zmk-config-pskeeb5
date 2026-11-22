@@ -22,8 +22,9 @@
 
 #include <behaviors/mouse_setting.dtsi>
 #include <dt-bindings/zmk/mouse_settings.h>
-#define U_MSS_TP_S_I &mms MS_TP_SENSITIVITY_INCR
-#define U_MSS_TP_S_D &mms MS_TP_SENSITIVITY_DECR
+/* Adjust trackpoint speed and push the new value to the left OLED. */
+#define U_MSS_TP_S_I &mss_report 10
+#define U_MSS_TP_S_D &mss_report -10
 
 / {
     behaviors {
@@ -54,6 +55,12 @@
             #sensor-binding-cells = <2>;
             bindings = <&msc>, <&msc>;
             tap-ms = <20>;
+        };
+        mss_report: mouse_speed_report {
+            display-name = "Mouse Speed";
+            label = "MOUSE_SPEED_REPORT";
+            compatible = "zmk,behavior-mouse-speed";
+            #binding-cells = <1>;
         };
     };
 

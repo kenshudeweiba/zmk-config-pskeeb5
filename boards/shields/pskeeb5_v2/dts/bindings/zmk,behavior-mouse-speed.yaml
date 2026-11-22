@@ -1,0 +1,5 @@
+description: Adjust trackpoint/mouse speed and report it to the peripheral display
+
+compatible: "zmk,behavior-mouse-speed"
+
+include: one_param.yaml

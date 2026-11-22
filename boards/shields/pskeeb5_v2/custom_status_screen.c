@@ -18,9 +18,10 @@
  *
  * Screen layout (logical 32 wide x 128 tall), black background / white glyphs:
  *   y=3   : output / connection icon (BT, USB, X) + BLE profile mark
- *   y=24  : LEFT half battery, number + charging bolt (e.g. L85)
- *   y=40  : RIGHT half battery, number + charging bolt (e.g. R90)
+ *   y=24  : LEFT half battery, number (L85) or charging bolt while charging
+ *   y=40  : RIGHT half battery, number (R90) or charging bolt while charging
  *   y=62  : active layer, large thin-line number
+ *   y=88  : mouse speed (S + number, synced from central)
  *   y=110 : split link status (link + OK / X)
  */
 
@@ -30,6 +31,7 @@
 #include <zmk/events/sync_layer_state.h>
 #include <zmk/events/battery_state_changed.h>
 #include <zmk/events/split_peripheral_status_changed.h>
+#include <zmk/events/hid_indicators_changed.h>
 #include <zmk/split/bluetooth/peripheral.h>
 #include <zmk/battery.h>
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
@@ -137,6 +139,10 @@ static const char *const glyph_L[] = {
 static const char *const glyph_R[] = {
     "####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#",
 };
+/* Letter "S" for Speed, 5x7, hand-drawn thin line. */
+static const char *const glyph_S[] = {
+    ".####", "#....", "#....", ".###.", "....#", "....#", "####.",
+};
 
 /* Bluetooth rune: central spine + two crossing triangular halves. */
 static const char *const icon_bt[] = {
@@ -155,9 +161,17 @@ static const char *const icon_x[] = {
     "#.......#", ".#.....#.", "..#...#..", "...#.#...", "....#....",
     "...#.#...", "..#...#..", ".#.....#.", "#.......#",
 };
-/* Compact 5x7 lightning bolt = charging, drawn next to the battery number. */
-static const char *const icon_bolt[] = {
-    "....#", "...#.", "..#..", ".###.", "..#..", ".#...", "#....",
+/* "Charging" glyph shown INSTEAD of the battery percentage while on USB power:
+ * a thin-line battery outline with a lightning bolt inside (13x7). The VDDH
+ * voltage sensor reads a false 100% while charging, so no number is shown. */
+static const char *const icon_charging[] = {
+    "############.",
+    "#....##....#.",
+    "#...##.....#.",
+    "#...###....##",
+    "#....##....#.",
+    "#...##.....#.",
+    "############.",
 };
 /* Split link: two squares joined by a bar. */
 static const char *const icon_link[] = {
@@ -226,12 +240,24 @@ struct batt_state {
 static struct batt_state left_batt_cur_state;
 static struct batt_state right_batt_cur_state;
 
+static void update_batt_state(struct batt_state *st, uint8_t level, bool charging)
+{
+    st->level = level;
+    st->charging = charging;
+    st->have_state = true;
+}
+
 struct layer_state {
     uint8_t index;
 };
 static struct layer_state layer_cur_state;
 
 static bool link_connected;
+
+/* Mouse speed arrives encoded in the HID-indicators byte from central.
+ * Values >= 32 are speed; 0-31 are genuine lock-LED states and are ignored. */
+static uint8_t mouse_speed;
+static bool mouse_speed_known;
 
 /* ================= REDRAW ================= */
 static void redraw_all(void)
@@ -256,21 +282,30 @@ static void redraw_all(void)
         art_number_small(13, 6, (uint16_t)output_cur_state.selected_endpoint.ble.profile_index + 1);
     }
 
-    /* --- left / right battery: plain numbers + per-half charging bolt --- */
+    /* --- left / right battery: number, or charging glyph instead of the
+     * false VDDH "100%" while on USB power --- */
     art_blit(1, 24, glyph_L, 5, 7);
-    art_number_small(8, 24, left_batt_cur_state.level);
     if (left_batt_cur_state.charging) {
-        art_blit(26, 24, icon_bolt, 5, 7);
+        art_blit(8, 23, icon_charging, 13, 7);
+    } else {
+        art_number_small(8, 24, left_batt_cur_state.level);
     }
     art_blit(1, 40, glyph_R, 5, 7);
-    art_number_small(8, 40, right_batt_cur_state.level);
     if (right_batt_cur_state.charging) {
-        art_blit(26, 40, icon_bolt, 5, 7);
+        art_blit(8, 39, icon_charging, 13, 7);
+    } else {
+        art_number_small(8, 40, right_batt_cur_state.level);
     }
 
     /* --- middle: large thin layer number --- */
     uint8_t layer = layer_cur_state.index;
     art_blit((LOGIC_W - 9) / 2, 62, digit9[layer < 10 ? layer : 0], 9, 13);
+
+    /* --- below layer: mouse speed (S + number) --- */
+    if (mouse_speed_known) {
+        art_blit(2, 88, glyph_S, 5, 7);
+        art_number_small(9, 88, mouse_speed);
+    }
 
     /* --- bottom: split link status --- */
     art_blit(1, 110, icon_link, 11, 9);
@@ -323,15 +358,12 @@ static int right_batt_listener_cb(const zmk_event_t *eh)
 {
     const struct zmk_sync_battery_state *ev = as_zmk_sync_battery_state(eh);
     if (ev != NULL) {
-        right_batt_cur_state = (struct batt_state){
-            .level = ev->level,
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
-            .charging = ev->is_charging,
+        bool charging = ev->is_charging;
 #else
-            .charging = false,
+        bool charging = false;
 #endif
-            .have_state = true,
-        };
+        update_batt_state(&right_batt_cur_state, ev->level, charging);
     }
     request_redraw();
     return ZMK_EV_EVENT_BUBBLE;
@@ -344,15 +376,12 @@ static int left_batt_listener_cb(const zmk_event_t *eh)
 {
     const struct zmk_battery_state_changed *ev = as_zmk_battery_state_changed(eh);
     uint8_t level = (ev != NULL) ? ev->state_of_charge : zmk_battery_state_of_charge();
-    left_batt_cur_state = (struct batt_state){
-        .level = level,
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
-        .charging = zmk_usb_is_powered(),
+    bool charging = zmk_usb_is_powered();
 #else
-        .charging = false,
+    bool charging = false;
 #endif
-        .have_state = true,
-    };
+    update_batt_state(&left_batt_cur_state, level, charging);
     request_redraw();
     return ZMK_EV_EVENT_BUBBLE;
 }
@@ -383,6 +412,20 @@ static int link_listener_cb(const zmk_event_t *eh)
 }
 ZMK_LISTENER(link_status, link_listener_cb);
 ZMK_SUBSCRIPTION(link_status, zmk_split_peripheral_status_changed);
+
+/* ================= EVENT: MOUSE SPEED (via HID indicators byte) ================= */
+static int mouse_speed_listener_cb(const zmk_event_t *eh)
+{
+    const struct zmk_hid_indicators_changed *ev = as_zmk_hid_indicators_changed(eh);
+    if (ev != NULL && ev->indicators >= 32) {
+        mouse_speed = ev->indicators;
+        mouse_speed_known = true;
+        request_redraw();
+    }
+    return ZMK_EV_EVENT_BUBBLE;
+}
+ZMK_LISTENER(mouse_speed_disp, mouse_speed_listener_cb);
+ZMK_SUBSCRIPTION(mouse_speed_disp, zmk_hid_indicators_changed);
 
 /* ---------- custom flush: 32x128 art -> transpose -> 128x32 page buffer ---------- */
 static void portrait_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map)
@@ -462,15 +505,13 @@ lv_obj_t *zmk_display_status_screen(void)
         .level = 0,
         .have_state = false,
     };
-    left_batt_cur_state = (struct batt_state){
-        .level = zmk_battery_state_of_charge(),
+    left_batt_cur_state = (struct batt_state){0};
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
-        .charging = zmk_usb_is_powered(),
+    bool seed_charging = zmk_usb_is_powered();
 #else
-        .charging = false,
+    bool seed_charging = false;
 #endif
-        .have_state = true,
-    };
+    update_batt_state(&left_batt_cur_state, zmk_battery_state_of_charge(), seed_charging);
     layer_cur_state = (struct layer_state){.index = 0};
     link_connected = zmk_split_bt_peripheral_is_connected();
 
