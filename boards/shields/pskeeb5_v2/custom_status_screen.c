@@ -21,7 +21,7 @@
  *   ~ly 4   : output / connection icon (BT, USB, X, charging)
  *   ~ly 20  : LEFT half battery, number only (e.g. L85)
  *   ~ly 38  : RIGHT half battery, number only (e.g. R90)
- *   ~ly 62  : active layer, large plain number (no icon, no fake bold)
+ *   ~ly 62  : active layer number, thin 8px stroke (no icon, no bold)
  */
 
 #include <zmk/display/widgets/peripheral_status.h>
@@ -90,18 +90,15 @@ static lv_obj_t *lbl_batt_right;
 static lv_obj_t *lbl_layer; /* active layer number, plain (no shadow/bold) */
 static lv_obj_t *lbl_link;
 
-/* Fonts: 12px for icons/text, 16px for the large layer number.
- * ZMK's Montserrat fonts bundle all LV_SYMBOL_* glyphs (FontAwesome PUA). */
-static const lv_font_t *font_12 = &lv_font_montserrat_12;
-static const lv_font_t *font_16 = &lv_font_montserrat_16;
+/* Font: stock ZMK status screen uses 8px Montserrat, whose glyph strokes are
+ * exactly 1px on this 1-bit OLED -> the thin lines seen on the original
+ * firmware. Larger sizes render 2-3px strokes and look artificially bold. */
+static const lv_font_t *font_8 = &lv_font_montserrat_8;
 
 static lv_obj_t *make_label(int32_t y)
 {
     lv_obj_t *lbl = lv_label_create(screen);
-    lv_obj_set_style_text_font(lbl, font_12, 0);
-    /* Slightly reduce glyph coverage: on this 1-bit OLED that thins the
-     * strokes instead of rendering them at full weight. */
-    lv_obj_set_style_text_opa(lbl, 200, 0);
+    lv_obj_set_style_text_font(lbl, font_8, 0);
     /* Inherit the active theme's foreground color. ZMK's mono theme uses
      * black text on a light background unless CONFIG_ZMK_DISPLAY_INVERT is
      * enabled, so forcing white here makes the labels invisible. */
@@ -298,7 +295,7 @@ ZMK_SUBSCRIPTION(left_batt, zmk_battery_state_changed);
 ZMK_SUBSCRIPTION(left_batt, zmk_usb_conn_state_changed);
 #endif /* CONFIG_USB_DEVICE_STACK */
 
-/* ================= LAYER (large plain number, no icon, no bold) ================= */
+/* ================= LAYER (plain number, thin 8px font, no icon) ================= */
 struct layer_state {
     uint8_t index;
 };
@@ -413,24 +410,22 @@ lv_obj_t *zmk_display_status_screen(void)
     lv_obj_set_style_pad_all(screen, 0, 0);
     lv_obj_set_style_border_width(screen, 0, 0);
 
-    /* Top: output/connection icon (12px) */
+    /* Top: output/connection icon (8px) */
     lbl_output = make_label(4);
-    /* LEFT half battery (12px) */
+    /* LEFT half battery (8px) */
     lbl_batt_left = make_label(20);
-    /* RIGHT half battery (12px) */
+    /* RIGHT half battery (8px) */
     lbl_batt_right = make_label(37);
-    /* Middle: large plain layer number (16px, no fake bold). */
+    /* Middle: layer number, same thin 8px stroke as the rest. */
     lbl_layer = lv_label_create(screen);
-    lv_obj_set_style_text_font(lbl_layer, font_16, 0);
-    lv_obj_set_style_text_opa(lbl_layer, 200, 0);
+    lv_obj_set_style_text_font(lbl_layer, font_8, 0);
     lv_obj_align(lbl_layer, LV_ALIGN_TOP_MID, 0, 62);
     lv_label_set_text(lbl_layer, "0");
     /* Bottom: split link */
 #if IS_ENABLED(CONFIG_ZMK_WIDGET_PERIPHERAL_STATUS)
     zmk_widget_peripheral_status_init(&peripheral_status_widget, screen);
     lbl_link = zmk_widget_peripheral_status_obj(&peripheral_status_widget);
-    lv_obj_set_style_text_font(lbl_link, font_12, 0);
-    lv_obj_set_style_text_opa(lbl_link, 200, 0);
+    lv_obj_set_style_text_font(lbl_link, font_8, 0);
     lv_obj_align(lbl_link, LV_ALIGN_TOP_LEFT, 1, 112);
 #endif
 
