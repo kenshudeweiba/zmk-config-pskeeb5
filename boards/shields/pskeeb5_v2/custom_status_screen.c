@@ -26,6 +26,7 @@
 
 #include <zmk/display/widgets/peripheral_status.h>
 #include <zmk/display/status_screen.h>
+#include <zmk/display.h>
 
 #include <zmk/event_manager.h>
 #include <zmk/events/sync_output_state.h>
@@ -181,12 +182,23 @@ static struct output_state output_get_state(const zmk_event_t *eh)
     };
 }
 
-static void output_update_cb(struct output_state st)
+static output_state_t output_cur_state;
+static void output_work_cb(struct k_work *w)
 {
-    set_output_icon(st);
+    ARG_UNUSED(w);
+    set_output_icon(output_cur_state);
 }
+K_WORK_DEFINE(output_work, output_work_cb);
 
-ZMK_DISPLAY_WIDGET_LISTENER(output_icon, output_state_t, output_update_cb, output_get_state)
+static int output_listener_cb(const zmk_event_t *eh)
+{
+    output_cur_state = output_get_state(eh);
+    if (zmk_display_is_initialized()) {
+        k_work_submit_to_queue(zmk_display_work_q(), &output_work);
+    }
+    return ZMK_EV_EVENT_BUBBLE;
+}
+ZMK_LISTENER(output_icon, output_listener_cb);
 ZMK_SUBSCRIPTION(output_icon, zmk_sync_output_state);
 
 /* ================= RIGHT (CENTRAL) BATTERY ================= */
@@ -226,13 +238,23 @@ static struct right_batt_state right_batt_get_state(const zmk_event_t *eh)
     return st;
 }
 
-static void right_batt_update_cb(struct right_batt_state st)
+static right_batt_state_t right_batt_cur_state;
+static void right_batt_work_cb(struct k_work *w)
 {
-    set_right_battery(st);
+    ARG_UNUSED(w);
+    set_right_battery(right_batt_cur_state);
 }
+K_WORK_DEFINE(right_batt_work, right_batt_work_cb);
 
-ZMK_DISPLAY_WIDGET_LISTENER(right_batt, right_batt_state_t, right_batt_update_cb,
-                            right_batt_get_state)
+static int right_batt_listener_cb(const zmk_event_t *eh)
+{
+    right_batt_cur_state = right_batt_get_state(eh);
+    if (zmk_display_is_initialized()) {
+        k_work_submit_to_queue(zmk_display_work_q(), &right_batt_work);
+    }
+    return ZMK_EV_EVENT_BUBBLE;
+}
+ZMK_LISTENER(right_batt, right_batt_listener_cb);
 ZMK_SUBSCRIPTION(right_batt, zmk_sync_battery_state);
 
 /* ================= LEFT (LOCAL PERIPHERAL) BATTERY ================= */
@@ -267,13 +289,23 @@ static struct left_batt_state left_batt_get_state(const zmk_event_t *eh)
     return st;
 }
 
-static void left_batt_update_cb(struct left_batt_state st)
+static left_batt_state_t left_batt_cur_state;
+static void left_batt_work_cb(struct k_work *w)
 {
-    set_left_battery(st);
+    ARG_UNUSED(w);
+    set_left_battery(left_batt_cur_state);
 }
+K_WORK_DEFINE(left_batt_work, left_batt_work_cb);
 
-ZMK_DISPLAY_WIDGET_LISTENER(left_batt, left_batt_state_t, left_batt_update_cb,
-                            left_batt_get_state)
+static int left_batt_listener_cb(const zmk_event_t *eh)
+{
+    left_batt_cur_state = left_batt_get_state(eh);
+    if (zmk_display_is_initialized()) {
+        k_work_submit_to_queue(zmk_display_work_q(), &left_batt_work);
+    }
+    return ZMK_EV_EVENT_BUBBLE;
+}
+ZMK_LISTENER(left_batt, left_batt_listener_cb);
 ZMK_SUBSCRIPTION(left_batt, zmk_battery_state_changed);
 #if IS_ENABLED(CONFIG_USB_DEVICE_STACK)
 ZMK_SUBSCRIPTION(left_batt, zmk_usb_conn_state_changed);
@@ -308,12 +340,23 @@ static struct layer_state layer_get_state(const zmk_event_t *eh)
     return st;
 }
 
-static void layer_update_cb(struct layer_state st)
+static layer_state_t layer_cur_state;
+static void layer_work_cb(struct k_work *w)
 {
-    set_layer(st);
+    ARG_UNUSED(w);
+    set_layer(layer_cur_state);
 }
+K_WORK_DEFINE(layer_work, layer_work_cb);
 
-ZMK_DISPLAY_WIDGET_LISTENER(layer_num, layer_state_t, layer_update_cb, layer_get_state)
+static int layer_listener_cb(const zmk_event_t *eh)
+{
+    layer_cur_state = layer_get_state(eh);
+    if (zmk_display_is_initialized()) {
+        k_work_submit_to_queue(zmk_display_work_q(), &layer_work);
+    }
+    return ZMK_EV_EVENT_BUBBLE;
+}
+ZMK_LISTENER(layer_num, layer_listener_cb);
 ZMK_SUBSCRIPTION(layer_num, zmk_sync_layer_state);
 
 /* ================= SPLIT LINK (bottom) ================= */
@@ -414,12 +457,16 @@ lv_obj_t *zmk_display_status_screen(void)
     lv_obj_align(lbl_link, LV_ALIGN_TOP_LEFT, 1, 112);
 #endif
 
-    /* Initialize widgets: each listener's get_state is called with NULL to seed
-     * the current value, so the screen is populated even before the first event. */
-    output_icon_init();
-    right_batt_init();
-    left_batt_init();
-    layer_num_init();
+    /* Seed initial values (NULL event => getters fall back to current state),
+     * then draw immediately so the screen is populated before the first event. */
+    output_cur_state = output_get_state(NULL);
+    right_batt_cur_state = right_batt_get_state(NULL);
+    left_batt_cur_state = left_batt_get_state(NULL);
+    layer_cur_state = layer_get_state(NULL);
+    set_output_icon(output_cur_state);
+    set_right_battery(right_batt_cur_state);
+    set_left_battery(left_batt_cur_state);
+    set_layer(layer_cur_state);
 
     return screen;
 }
