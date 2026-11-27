@@ -52,6 +52,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "display_blank.h"
+
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 /* ---------- display geometry ---------- */
@@ -527,6 +529,15 @@ static void portrait_flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t
     ARG_UNUSED(area);
     ARG_UNUSED(px_map);
     ARG_UNUSED(lv_display_flush_is_last(disp));
+
+    /* Panel blanked: skip the full-frame transpose + SPI write entirely.
+     * ZMK keeps its LVGL tick timer running even while blanked, so without
+     * this guard every tick would still hammer the (powered-off) panel. We
+     * must still signal flush completion or LVGL stalls waiting on us. */
+    if (!pskeeb5_panel_is_on()) {
+        lv_display_flush_ready(disp);
+        return;
+    }
 
     /* Black background, white glyphs. With inversion-on the panel reports
      * PIXEL_FORMAT_MONO10, where bit=1 is black (off) and bit=0 is white (on).
