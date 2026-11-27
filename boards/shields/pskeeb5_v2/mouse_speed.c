@@ -27,6 +27,10 @@
 #include <zmk/hid_indicators_types.h>
 #if IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
 #include <zmk/input_mouse_ps2.h>
+
+/* sensitivity_get() is implemented by the PS/2 driver but not declared in its
+ * public header. Declare it here so boot can read the driver's restored value. */
+int zmk_mouse_ps2_tp_sensitivity_get(uint8_t *sensitivity);
 #endif
 #include <zephyr/logging/log.h>
 
@@ -58,9 +62,30 @@ static void report_repeat_cb(struct k_work *work);
 static K_WORK_DELAYABLE_DEFINE(report_repeat_work, report_repeat_cb);
 static int repeat_count;
 
+/* Sync the displayed speed from the driver's real sensitivity. The driver
+ * restores its saved sensitivity from flash in its own init thread, which
+ * finishes shortly after boot. Reading it on the first repeat (2 s in) picks
+ * up that restored value, so the OLED shows the persisted speed instead of
+ * the hard-coded 128 default. */
+static void sync_speed_from_driver(void)
+{
+    uint8_t sensitivity = 0;
+    if (zmk_mouse_ps2_tp_sensitivity_get(&sensitivity) == 0) {
+        if (sensitivity < REPORT_MIN) {
+            sensitivity = REPORT_MIN;
+        } else if (sensitivity > REPORT_MAX) {
+            sensitivity = REPORT_MAX;
+        }
+        cur_speed = sensitivity;
+    }
+}
+
 static void report_repeat_cb(struct k_work *work)
 {
     ARG_UNUSED(work);
+    if (repeat_count == 0) {
+        sync_speed_from_driver();
+    }
     report_speed();
     repeat_count++;
     k_timeout_t delay = (repeat_count < 20) ? K_SECONDS(3) : K_SECONDS(20);
