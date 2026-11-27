@@ -18,7 +18,8 @@
  *
  * Screen layout (logical 32 wide x 128 tall), black background / white glyphs.
  * EVERY row is horizontally centered as one group (icon + number together):
- *   y=3   : output / connection icon (BT, USB) rotated 90 deg landscape + profile
+ *   y=3   : output / connection icon (BT, USB, or X) landscape + BLE channel no.
+ *           (when disconnected: selected BLE channel number before the X)
  *   y=24  : LEFT half battery, number (L85) or charging glyph while charging
  *   y=40  : RIGHT half battery, number (R90) or charging glyph while charging
  *   y=62  : active layer, large BOLD number, centered by actual ink bounds
@@ -360,7 +361,16 @@ static void redraw_all(void)
             art_number_small(gx + icon_w + 1, 4, profile);
         }
     } else {
-        art_blit(art_center_x(9), 3, icon_x, 9, 9);
+        /* Not connected: show the currently selected BLE channel number right
+         * in front of the X, e.g. "1 X" / "2 X". Use active_profile_index
+         * (synced from central) when there is no BLE endpoint selected, the
+         * same rule ZMK's own sync_output_status widget uses. */
+        uint16_t profile = (uint16_t)output_cur_state.active_profile_index + 1;
+        int prof_w = art_number_small_width(profile);
+        int group_w = prof_w + 1 + 9; /* digits + gap + X */
+        int gx = art_center_x(group_w);
+        art_number_small(gx, 4, profile);
+        art_blit(gx + prof_w + 1, 3, icon_x, 9, 9);
     }
 
     /* --- left / right battery: number, or charging glyph instead of the
